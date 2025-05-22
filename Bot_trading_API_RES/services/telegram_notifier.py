@@ -1,163 +1,160 @@
 ﻿"""
-Telegram notification service for Bot Trading API REST
-Handles sending notifications and alerts via Telegram
+Telegram notification service
 """
 
-import asyncio
 import logging
-from typing import Optional, Union, Dict
+import asyncio
 from datetime import datetime
-from telegram import Bot, ParseMode
+from typing import Optional
+from telegram import Bot
+from telegram.constants import ParseMode
 from telegram.error import TelegramError
-
-from ..core.models import SignalData, TradingPosition
+import telegram
 
 class TelegramNotifier:
     def __init__(self, token: str = "", chat_id: str = ""):
-        """
-        Initialize Telegram notifier
+        """Initialize Telegram notifier
         
-        Parameters:
-        -----------
+        Parameters
+        ----------
         token : str
             Telegram bot token
         chat_id : str
-            Telegram chat ID
+            Telegram chat ID to send messages to
         """
+        if not token or not chat_id:
+            raise ValueError("Telegram token and chat ID are required")
+            
         self.token = token
         self.chat_id = chat_id
-        self.bot = Bot(token=token)
+        self.bot: Optional[Bot] = None
         self.logger = logging.getLogger(__name__)
         self.message_queue = asyncio.Queue()
         self.is_running = False
-
+        self.last_message_time = datetime.utcnow()
+        self.MESSAGE_RATE_LIMIT = 1.0  # Minimum seconds between messages
+        
     async def start(self):
         """Start the notification service"""
-        self.is_running = True
-        await self.process_message_queue()
+        try:
+            self.logger.info("Starting Telegram notification service...")
+            self.is_running = True
+            
+            # Initialize bot
+            self.bot = Bot(self.token)
+            
+            # Test bot connection
+            me = await self.bot.get_me()
+            self.logger.info(f"Bot connected successfully: @{me.username}")
+            
+            # Test chat ID
+            try:
+                chat = await self.bot.get_chat(self.chat_id)
+                self.logger.info(f"Chat found: {chat.type} - {chat.title if chat.type != 'private' else 'Private'}")
+            except telegram.error.BadRequest as e:
+                self.logger.error(f"Error getting chat: {str(e)}")
+                raise
+                
+            self.logger.info("Telegram notification service started successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to start Telegram service: {str(e)}")
+            self.is_running = False
+            raise
 
     async def stop(self):
         """Stop the notification service"""
-        self.is_running = False
-        await self.message_queue.join()
-        await self.bot.close()
+        try:
+            self.logger.info("Stopping Telegram notification service...")
+            self.is_running = False
+            # Empty the message queue
+            while not self.message_queue.empty():
+                try:
+                    self.message_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            self.logger.info("Telegram notification service stopped")
+        except Exception as e:
+            self.logger.error(f"Error stopping Telegram service: {str(e)}")
 
-    async def process_message_queue(self):
-        """Process queued messages"""
-        while self.is_running:
-            try:
-                if not self.message_queue.empty():
-                    message = await self.message_queue.get()
-                    await self._send_telegram_message(message)
-                    self.message_queue.task_done()
-                await asyncio.sleep(0.1)
-            except Exception as e:
-                self.logger.error(f"Error processing message queue: {str(e)}")
-
-    async def _send_telegram_message(self, message: str):
-        """
-        Send message to Telegram
+    async def send_message(self, message: str) -> bool:
+        """Send message to Telegram chat
         
-        Parameters:
-        -----------
+        Parameters
+        ----------
         message : str
             Message to send
+            
+        Returns
+        -------
+        bool
+            True if message was sent successfully
         """
+        if not self.is_running or not self.bot:
+            self.logger.error("Telegram service is not running")
+            return False
+            
         try:
-            await self.bot.send_message(
+            self.logger.debug(f"Sending message to chat {self.chat_id}")
+            await self._handle_rate_limit()
+            
+            result = await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=message,
                 parse_mode=ParseMode.HTML
             )
-        except TelegramError as e:
-            self.logger.error(f"Telegram error: {str(e)}")
+            
+            self.logger.debug(f"Message sent successfully. Message ID: {result.message_id}")
+            return True
+            
+        except telegram.error.Unauthorized:
+            self.logger.error("Bot token is invalid or bot was blocked")
+            return False
+        except telegram.error.BadRequest as e:
+            self.logger.error(f"Bad request: {str(e)}")
+            if "chat not found" in str(e).lower():
+                self.logger.error(f"Chat ID {self.chat_id} not found. Did you start the bot?")
+            return False
         except Exception as e:
             self.logger.error(f"Error sending message: {str(e)}")
+            return False
 
-    async def send_message(self, message: str):
-        """
-        Queue message for sending
+    async def send_signal(self, signal_data) -> bool:
+        """Send trading signal
         
-        Parameters:
-        -----------
-        message : str
-            Message to send
+        Parameters
+        ----------
+        signal_data : SignalData
+            Signal data to send
+            
+        Returns
+        -------
+        bool
+            True if signal was sent successfully
         """
-        await self.message_queue.put(message)
+        try:
+            message = (
+                f"🚨 <b>{signal_data.signal_type} Signal</b>\n\n"
+                f"💎 Coin: {signal_data.symbol}\n"
+                f"📈 Entry: ${signal_data.entry:,.8f}\n"
+                f"🛑 Stop Loss: ${signal_data.stop_loss:,.8f}\n"
+                f"🎯 Take Profit: ${signal_data.take_profit:,.8f}\n"
+                f"⭐ Confidence: {signal_data.confidence:.2f}\n\n"
+                f"📝 Lý do:\n{signal_data.reason}\n\n"
+                f"⏰ Time: {signal_data.timestamp}"
+            )
+            
+            return await self.send_message(message)
+            
+        except Exception as e:
+            self.logger.error(f"Error sending signal: {str(e)}")
+            return False
 
-    async def send_signal(self, signal: SignalData):
-        """
-        Send trading signal notification
-        
-        Parameters:
-        -----------
-        signal : SignalData
-            Trading signal data
-        """
-        message = (
-            f"🚨 <b>Trading Signal</b>\n\n"
-            f"Symbol: {signal.symbol}\n"
-            f"Type: {signal.signal_type}\n"
-            f"Entry: {signal.entry:.8f}\n"
-            f"Stop Loss: {signal.stop_loss:.8f}\n"
-            f"Take Profit: {signal.take_profit:.8f}\n"
-            f"Confidence: {signal.confidence:.2f}\n"
-            f"Time: {signal.timestamp}\n\n"
-            f"Reason: {signal.reason}"
-        )
-        await self.send_message(message)
-
-    async def send_position_update(self, position: TradingPosition):
-        """
-        Send position update notification
-        
-        Parameters:
-        -----------
-        position : TradingPosition
-            Trading position data
-        """
-        message = (
-            f"📊 <b>Position Update</b>\n\n"
-            f"Symbol: {position.symbol}\n"
-            f"Type: {position.position_type}\n"
-            f"Entry: {position.entry_price:.8f}\n"
-            f"Current: {position.current_price:.8f}\n"
-            f"PnL: {position.pnl:.2f}%\n"
-            f"Status: {position.status.value}"
-        )
-        await self.send_message(message)
-
-    async def send_error(self, error: str):
-        """
-        Send error notification
-        
-        Parameters:
-        -----------
-        error : str
-            Error message
-        """
-        message = (
-            f"❌ <b>Error</b>\n\n"
-            f"Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
-            f"Error: {error}"
-        )
-        await self.send_message(message)
-
-    async def send_system_status(self, status: Dict):
-        """
-        Send system status notification
-        
-        Parameters:
-        -----------
-        status : Dict
-            System status information
-        """
-        message = (
-            f"📱 <b>System Status</b>\n\n"
-            f"Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
-            f"Running: {status.get('is_running', False)}\n"
-            f"Active Positions: {status.get('active_positions', 0)}\n"
-            f"24h Volume: ${status.get('volume_24h', 0):,.2f}\n"
-            f"24h PnL: {status.get('pnl_24h', 0):.2f}%"
-        )
-        await self.send_message(message)
+    async def _handle_rate_limit(self):
+        """Handle message rate limiting"""
+        now = datetime.utcnow()
+        elapsed = (now - self.last_message_time).total_seconds()
+        if elapsed < self.MESSAGE_RATE_LIMIT:
+            delay = self.MESSAGE_RATE_LIMIT - elapsed
+            await asyncio.sleep(delay)
+        self.last_message_time = now

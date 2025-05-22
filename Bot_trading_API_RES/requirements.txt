@@ -17,11 +17,13 @@ aiofiles>=0.8.0
 python-dotenv>=0.19.0
 PyYAML>=6.0
 pytz>=2021.3
+tenacity>=8.0.1
 
 # Testing
 pytest>=6.2.5
 pytest-asyncio>=0.16.0
 pytest-cov>=2.12.1
+pytest-mock>=3.7
 
 # Logging
 colorlog>=6.6.0
@@ -35,3 +37,10 @@ isort>=5.10.1
 # Documentation
 sphinx>=4.3.2
 sphinx-rtd-theme>=1.0.0
+# Monitoring
+prometheus_client>=0.14
+# Development
+black>=21.12b0
+flake8>=4.0.1
+mypy>=0.910
+isort>=5.10.1

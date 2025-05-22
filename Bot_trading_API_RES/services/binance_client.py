@@ -29,6 +29,16 @@ class BinanceClient:
         self.last_api_call = datetime.utcnow()
         self.RATE_LIMIT_DELAY = 0.1  # seconds between API calls
 
+      # Add health check method
+    async def check_health(self) -> bool:
+        """Check API connection health"""
+        try:
+            await self._handle_rate_limit()
+            await self.async_client.ping()
+            return True
+        except Exception as e:
+            self.logger.error(f"Health check failed: {str(e)}")
+            return False
     async def initialize_async_client(self):
         """Initialize async client"""
         self.async_client = await AsyncClient.create(self.api_key, self.api_secret)

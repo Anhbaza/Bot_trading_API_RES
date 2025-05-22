@@ -1,6 +1,9 @@
+"""
+Validation utilities for Bot Trading API REST
+Provides functions for validating trading parameters and data
+"""
 
-
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, Tuple
 import re
 
 def validate_price(
