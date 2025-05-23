@@ -1,0 +1,13 @@
+﻿telegram:
+  token: "7966861727:AAHE-TDH2sZNxWhwRSZO2B48-4cKP6cuCE0"  # Thay bằng token của bot Telegram của bạn
+  chat_id: "5184726235"          # Thay bằng chat ID của bạn
+
+trading:
+  initial_investment: 100.0  # Số tiền đầu tư mặc định (USD)
+  symbols:
+    - "BTC/USDT"
+    - "ETH/USDT"
+    # Thêm các cặp giao dịch khác nếu cần
+
+monitoring:
+  update_interval: 1  # Thời gian cập nhật (giây)

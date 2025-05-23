@@ -27,11 +27,11 @@ class OrderBookLevel:
 
 @dataclass
 class MarketState:
-    """Market state at a specific point in time"""
+    """Market state at a given timestamp"""
     timestamp: datetime
     current_price: float
-    vol_ratio: float  # Bid/Ask volume ratio
-    cnt_ratio: float  # Bid/Ask count ratio
+    vol_ratio: float  # Bid/ask volume ratio
+    cnt_ratio: float  # Bid/ask count ratio
     spread: float
     bid_vol: float
     ask_vol: float
@@ -40,6 +40,10 @@ class MarketState:
     rsi_5m: float = 50.0
     ma20_5m: float = 0.0
     ma50_15m: float = 0.0
+    orderbook: Optional[Dict] = None  # Added for liquidity calculation
+    long_short_ratio: float = 1.0
+    trend_strength: float = 0.5
+    liquidity_score: float = 0.5
 
     def __post_init__(self):
         """Validate after initialization"""
@@ -183,3 +187,14 @@ class TradingStats:
             peak = max(peak, cumulative_pnl)
             drawdown = peak - cumulative_pnl
             self.max_drawdown = max(self.max_drawdown, drawdown)
+@dataclass
+class TradingSignal:
+    """Trading signal with enhanced confidence"""
+    symbol: str
+    signal_type: str  # 'LONG' or 'SHORT'
+    entry_price: float
+    stop_loss: float
+    take_profit: float
+    confidence: float
+    timestamp: datetime
+    components: Dict  # Store individual confidence components

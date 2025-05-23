@@ -16,8 +16,8 @@ class MarketTrendAnalyzer:
                  api_key: str, 
                  api_secret: str, 
                  symbol: str = "",
-                 depth_limit: int = 200,
-                 price_range_percent: float = 0.2,
+                 depth_limit: int = 100,
+                 price_range_percent: float = 1.0,
                  vol_threshold: float = 1.5,
                  cnt_threshold: float = 1.5,
                  history_size: int = 100):
@@ -221,3 +221,64 @@ class MarketTrendAnalyzer:
                 confidence += weights['spread']
                 
         return confidence
+    def get_market_state(self) -> MarketState:
+        """Get current market state with enhanced metrics"""
+        try:
+            # Get current price
+            ticker = self.client.get_symbol_ticker(symbol=self.symbol)
+            current_price = float(ticker['price'])
+            
+            # Get orderbook
+            depth = self.client.get_order_book(symbol=self.symbol, limit=self.depth_limit)
+            
+            # Get klines for technical indicators
+            klines_5m = self.client.get_klines(symbol=self.symbol, interval='5m', limit=200)
+            klines_15m = self.client.get_klines(symbol=self.symbol, interval='15m', limit=200)
+            
+            # Calculate basic metrics
+            price_range = current_price * (self.price_range_percent / 100)
+            price_min = current_price - price_range
+            price_max = current_price + price_range
+            
+            bids = [(float(p), float(q)) for p, q in depth['bids'] 
+                    if price_min <= float(p) <= price_max]
+            asks = [(float(p), float(q)) for p, q in depth['asks'] 
+                    if price_min <= float(p) <= price_max]
+            
+            bid_vol = sum(q for _, q in bids)
+            ask_vol = sum(q for _, q in asks)
+            bid_cnt = len(bids)
+            ask_cnt = len(asks)
+            
+            vol_ratio = bid_vol / ask_vol if ask_vol else float('inf')
+            cnt_ratio = bid_cnt / ask_cnt if ask_cnt else float('inf')
+            spread = asks[0][0] - bids[0][0] if asks and bids else 0
+            
+            # Calculate technical indicators
+            rsi_5m = calculate_rsi(klines_5m)
+            ma20_5m = calculate_ma(klines_5m, 20)
+            ma50_15m = calculate_ma(klines_15m, 50)
+            
+            # Create enhanced market state
+            return MarketState(
+                timestamp=datetime.utcnow(),
+                current_price=current_price,
+                vol_ratio=vol_ratio,
+                cnt_ratio=cnt_ratio,
+                spread=spread,
+                bid_vol=bid_vol,
+                ask_vol=ask_vol,
+                bid_cnt=bid_cnt,
+                ask_cnt=ask_cnt,
+                rsi_5m=rsi_5m,
+                ma20_5m=ma20_5m,
+                ma50_15m=ma50_15m,
+                orderbook=depth,  # Store full orderbook for liquidity calculation
+                long_short_ratio=self._calculate_long_short_ratio(klines_5m),
+                trend_strength=self._calculate_trend_strength(klines_5m),
+                liquidity_score=self._calculate_liquidity_score(depth)
+            )
+            
+        except Exception as e:
+            print(f"Error getting market state: {str(e)}")
+            return None

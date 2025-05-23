@@ -44,3 +44,6 @@ black>=21.12b0
 flake8>=4.0.1
 mypy>=0.910
 isort>=5.10.1
+tkinter
+prometheus_client
+python-telegram-bot>=13.7

@@ -25,12 +25,13 @@ class FuturesAnalyzer:
         self.TREND_IDEAL_STRENGTH = settings.get('TREND_IDEAL_STRENGTH', 1.5)
 
         # RSI thresholds
-        self.ACCUMULATION_RSI_MAX = 65
-        self.DISTRIBUTION_RSI_MIN = 35
+        self.ACCUMULATION_RSI_MAX = 60
+        self.DISTRIBUTION_RSI_MIN = 40
         
         # Timeframes 
         self.TIMEFRAMES = ['3m', '5m', '15m']
         self.PRIMARY_TIMEFRAME = '5m'
+        self.SECONDARY_TIMEFRAME = '15m'
         
         # Pre-filter parameters
         self.MIN_24H_VOLUME = settings.get('MIN_24H_VOLUME', 300_000)
@@ -367,3 +368,150 @@ class FuturesAnalyzer:
             
         except Exception:
             return 0.5
+    def _calculate_long_short_ratio(self, klines: List, lookback_period: int = 100) -> float:
+        """Calculate long/short volume ratio"""
+        try:
+            if len(klines) < lookback_period:
+                return 1.0
+                
+            long_volume = 0
+            short_volume = 0
+            
+            for kline in klines[-lookback_period:]:
+                close = float(kline[4])
+                open = float(kline[1])
+                volume = float(kline[5])
+                
+                if close > open:
+                    long_volume += volume
+                else:
+                    short_volume += volume
+                    
+            return long_volume / (short_volume + 0.000001)
+        except Exception:
+            return 1.0
+            
+    def _calculate_trend_strength(self, klines: List, period: int = 14) -> float:
+        """Calculate trend strength using ADX-like calculation"""
+        try:
+            if len(klines) < period + 1:
+                return 0.5
+                
+            highs = [float(k[2]) for k in klines]
+            lows = [float(k[3]) for k in klines]
+            closes = [float(k[4]) for k in klines]
+            
+            # Calculate +DI and -DI
+            plus_dm = [max(highs[i] - highs[i-1], 0) if highs[i] - highs[i-1] > lows[i-1] - lows[i] else 0 
+                      for i in range(1, len(klines))]
+            minus_dm = [max(lows[i-1] - lows[i], 0) if lows[i-1] - lows[i] > highs[i] - highs[i-1] else 0 
+                       for i in range(1, len(klines))]
+            
+            # Calculate True Range
+            tr = [max(highs[i] - lows[i],
+                     abs(highs[i] - closes[i-1]),
+                     abs(lows[i] - closes[i-1]))
+                  for i in range(1, len(klines))]
+            
+            # Calculate smoothed values
+            smoothed_plus_dm = np.mean(plus_dm[-period:])
+            smoothed_minus_dm = np.mean(minus_dm[-period:])
+            smoothed_tr = np.mean(tr[-period:])
+            
+            # Calculate directional indices
+            plus_di = 100 * smoothed_plus_dm / smoothed_tr if smoothed_tr > 0 else 0
+            minus_di = 100 * smoothed_minus_dm / smoothed_tr if smoothed_tr > 0 else 0
+            
+            # Calculate trend strength (simplified ADX)
+            dx = abs(plus_di - minus_di) / (plus_di + minus_di) * 100 if (plus_di + minus_di) > 0 else 0
+            return min(dx / 100, 1.0)  # Normalize to 0-1
+            
+        except Exception:
+            return 0.5
+            
+    def _calculate_liquidity_score(self, orderbook: Dict) -> float:
+        """Calculate market liquidity score"""
+        try:
+            bids = orderbook['bids']
+            asks = orderbook['asks']
+            
+            if not bids or not asks:
+                return 0.5
+                
+            # Calculate total volume within 1% price range
+            current_price = float(bids[0][0])
+            price_range = current_price * 0.01
+            
+            bid_volume = sum(float(b[1]) for b in bids 
+                           if float(b[0]) >= current_price - price_range)
+            ask_volume = sum(float(a[1]) for a in asks 
+                           if float(a[0]) <= current_price + price_range)
+            
+            # Calculate liquidity score based on volume and order count
+            liquidity = (bid_volume + ask_volume) * min(len(bids), len(asks))
+            return min(liquidity / 1000, 1.0)  # Normalize to 0-1
+            
+        except Exception:
+            return 0.5
+            
+    def calculate_enhanced_confidence(self, 
+                                   signal_type: str,
+                                   market_data: Dict,
+                                   klines: List) -> float:
+        """Calculate enhanced confidence score"""
+        try:
+            # Calculate base confidence
+            base_confidence = self._calculate_signal_confidence(
+                signal_type,
+                market_data['rsi_5m'],
+                market_data['rsi_15m'],
+                market_data['volume_ratio']
+            )
+            
+            # Calculate additional indicators
+            ls_ratio = self._calculate_long_short_ratio(klines)
+            trend_strength = self._calculate_trend_strength(klines)
+            liquidity = self._calculate_liquidity_score(market_data['orderbook'])
+            
+            # Define weights for components
+            weights = {
+                'base': 0.4,
+                'ls_ratio': 0.2,
+                'trend': 0.2,
+                'liquidity': 0.2
+            }
+            
+            # Calculate final confidence score
+            enhanced_confidence = (
+                base_confidence * weights['base'] +
+                (ls_ratio if signal_type == 'LONG' else 1/ls_ratio) * weights['ls_ratio'] +
+                trend_strength * weights['trend'] +
+                liquidity * weights['liquidity']
+            )
+            
+            # Log components for analysis
+            self._log_confidence_components({
+                'base_confidence': base_confidence,
+                'ls_ratio': ls_ratio,
+                'trend_strength': trend_strength,
+                'liquidity': liquidity,
+                'final_score': enhanced_confidence
+            })
+            
+            return min(max(enhanced_confidence, 0.0), 1.0)
+            
+        except Exception as e:
+            print(f"Error calculating enhanced confidence: {str(e)}")
+            return 0.5
+            
+    def _log_confidence_components(self, components: Dict):
+        """Log confidence score components for analysis"""
+        try:
+            timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            log_entry = f"[{timestamp}] Confidence components: {components}"
+            
+            # Add logging implementation here (e.g., to file or database)
+            print(log_entry)
+            
+        except Exception:
+            pass
