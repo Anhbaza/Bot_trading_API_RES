@@ -1,10 +1,4 @@
 ﻿#!/usr/bin/env python3
-"""
-Order Manager Bot
-Author: Anhbaza01
-Last Updated: 2025-05-23 17:14:10 UTC
-"""
-
 import os
 import sys
 import asyncio
@@ -13,405 +7,377 @@ from datetime import datetime
 import json
 import yaml
 from typing import Dict, Any, List, Optional
-import curses
-from curses import wrapper
-import aiohttp
-from telegram import Bot
-from telegram.error import TelegramError
+import tkinter as tk
+from tkinter import ttk, messagebox
+import threading
+
+from shared.constants import *
+from shared.telegram_service import TelegramService
+from shared.database import Database
+
+class Signal:
+    def __init__(self, data: Dict[str, Any]):
+        self.symbol = data['symbol']
+        self.type = data['type']  # LONG or SHORT
+        self.entry = float(data['entry'])
+        self.tp = float(data['tp'])
+        self.sl = float(data['sl'])
+        self.timestamp = datetime.utcnow()
 
 class Order:
-    def __init__(self, symbol: str, type: str, entry: float, tp: float, sl: float):
-        self.symbol = symbol
-        self.type = type  # LONG or SHORT
-        self.entry = entry
-        self.take_profit = tp
-        self.stop_loss = sl
-        self.current_price = entry
+    def __init__(self, signal: Signal):
+        self.symbol = signal.symbol
+        self.type = signal.type
+        self.entry = signal.entry
+        self.tp = signal.tp
+        self.sl = signal.sl
+        self.size = TRADE_SIZE_USDT
+        self.current_price = signal.entry
         self.pnl = 0.0
-        self.size = 100  # Fixed size $100 per trade
-        self.status = "PENDING"
+        self.status = ORDER_STATE_OPEN
         self.entry_time = datetime.utcnow()
         self.close_time = None
         self.close_reason = None
-        
-    def update_price(self, price: float):
-        """Update current price and calculate PnL"""
+
+    def update_price(self, price: float) -> Optional[str]:
         self.current_price = price
         price_change = (price - self.entry) / self.entry
         self.pnl = price_change * self.size * (1 if self.type == "LONG" else -1)
         
-        # Check TP/SL
         if self.type == "LONG":
-            if price >= self.take_profit:
-                return "TP"
-            elif price <= self.stop_loss:
-                return "SL"
-        else:  # SHORT
-            if price <= self.take_profit:
-                return "TP"
-            elif price >= self.stop_loss:
-                return "SL"
-                
-        return None
-        
-    def close(self, reason: str):
-        """Close the order"""
-        self.status = "CLOSED"
-        self.close_time = datetime.utcnow()
-        self.close_reason = reason
-
-class ConsoleUI:
-    def __init__(self, stdscr):
-        self.stdscr = stdscr
-        self.height, self.width = stdscr.getmaxyx()
-        self.selected_index = 0
-        self.signals = []  # List of available signals
-        self.selected_pairs = []  # Selected pairs for trading
-        self.active_orders: Dict[str, Order] = {}  # Active orders being monitored
-        self.closed_orders: List[Order] = []  # History of closed orders
-        self.total_pnl = 0.0  # Total profit/loss
-        self.view_mode = "SIGNALS"  # SIGNALS or ORDERS view
-        
-        # Initialize colors
-        curses.start_color()
-        curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)
-        curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK)
-        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
-        curses.init_pair(4, curses.COLOR_RED, curses.COLOR_BLACK)
-        curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLUE)
-        
-        self.GREEN = curses.color_pair(1)
-        self.CYAN = curses.color_pair(2)
-        self.YELLOW = curses.color_pair(3)
-        self.RED = curses.color_pair(4)
-        self.HIGHLIGHT = curses.color_pair(5)
-
-    def draw_header(self):
-        """Draw header with stats"""
-        # Title
-        title = " BOT QUẢN LÝ LỆNH GIAO DỊCH "
-        self.stdscr.addstr(0, (self.width - len(title)) // 2, title, self.YELLOW | curses.A_BOLD)
-        
-        # Info line
-        time_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-        info = f" ⌚ {time_str} UTC | 👤 Anhbaza01 | 💰 P/L: ${self.total_pnl:+,.2f} "
-        self.stdscr.addstr(1, 2, info, self.GREEN)
-        
-        # Stats
-        stats = f" 📊 Lệnh đang mở: {len(self.active_orders)}/5 | ✅ Lệnh đã đóng: {len(self.closed_orders)} "
-        self.stdscr.addstr(1, self.width - len(stats) - 2, stats, self.CYAN)
-        
-        # Mode
-        mode = " SIGNALS " if self.view_mode == "SIGNALS" else " ORDERS "
-        self.stdscr.addstr(2, 2, mode, self.HIGHLIGHT)
-        
-        # Separator
-        self.stdscr.addstr(3, 1, "─" * (self.width-2), self.CYAN)
-
-    def draw_signals_view(self):
-        """Draw signals selection view"""
-        # Headers
-        header_y = 5
-        self.stdscr.addstr(header_y, 2, "ID  │ Cặp      │ Loại │ Giá vào     │ TP          │ SL          │ Status", self.CYAN)
-        self.stdscr.addstr(header_y + 1, 2, "───┼──────────┼──────┼────────────┼────────────┼────────────┼────────", self.CYAN)
-        
-        # List signals
-        for idx, signal in enumerate(self.signals):
-            y = header_y + 2 + idx
-            if y < self.height - 4:
-                # Highlight selected row
-                attr = self.HIGHLIGHT if idx == self.selected_index else curses.A_NORMAL
-                
-                # ID and symbol
-                self.stdscr.addstr(y, 2, f"{idx+1:2d}", attr)
-                self.stdscr.addstr(y, 4, " │ ")
-                symbol_attr = self.YELLOW if signal['symbol'] in self.selected_pairs else attr
-                self.stdscr.addstr(y, 7, f"{signal['symbol']:<8}", symbol_attr)
-                
-                # Type
-                self.stdscr.addstr(y, 15, " │ ")
-                type_attr = self.GREEN if signal['type'] == "LONG" else self.RED
-                self.stdscr.addstr(y, 17, f"{signal['type']:<4}", type_attr)
-                
-                # Entry
-                self.stdscr.addstr(y, 21, " │ ")
-                self.stdscr.addstr(y, 23, f"${signal['entry']:>9,.2f}", attr)
-                
-                # TP
-                self.stdscr.addstr(y, 32, " │ ")
-                self.stdscr.addstr(y, 34, f"${signal['tp']:>9,.2f}", self.GREEN)
-                
-                # SL
-                self.stdscr.addstr(y, 43, " │ ")
-                self.stdscr.addstr(y, 45, f"${signal['sl']:>9,.2f}", self.RED)
-                
-                # Status
-                self.stdscr.addstr(y, 54, " │ ")
-                status = "SELECTED" if signal['symbol'] in self.selected_pairs else "AVAILABLE"
-                status_attr = self.YELLOW if status == "SELECTED" else attr
-                self.stdscr.addstr(y, 56, f"{status:<8}", status_attr)
-
-    def draw_orders_view(self):
-        """Draw active orders view"""
-        # Headers
-        header_y = 5
-        self.stdscr.addstr(header_y, 2, "Cặp      │ Loại │ Giá vào     │ Giá hiện tại │ P/L ($)  │ P/L (%) │ Thời gian", self.CYAN)
-        self.stdscr.addstr(header_y + 1, 2, "─────────┼──────┼────────────┼──────────────┼──────────┼─────────┼──────────", self.CYAN)
-        
-        # List active orders
-        for idx, (symbol, order) in enumerate(self.active_orders.items()):
-            y = header_y + 2 + idx
-            if y < self.height - 4:
-                # Symbol
-                self.stdscr.addstr(y, 2, f"{order.symbol:<8}", self.YELLOW)
-                
-                # Type
-                self.stdscr.addstr(y, 10, " │ ")
-                type_attr = self.GREEN if order.type == "LONG" else self.RED
-                self.stdscr.addstr(y, 12, f"{order.type:<4}", type_attr)
-                
-                # Entry price
-                self.stdscr.addstr(y, 16, " │ ")
-                self.stdscr.addstr(y, 18, f"${order.entry:>9,.2f}")
-                
-                # Current price
-                self.stdscr.addstr(y, 27, " │ ")
-                self.stdscr.addstr(y, 29, f"${order.current_price:>11,.2f}")
-                
-                # P/L amount
-                self.stdscr.addstr(y, 40, " │ ")
-                pnl_attr = self.GREEN if order.pnl >= 0 else self.RED
-                self.stdscr.addstr(y, 42, f"${order.pnl:>+7,.2f}", pnl_attr)
-                
-                # P/L percent
-                self.stdscr.addstr(y, 49, " │ ")
-                pnl_pct = (order.pnl / order.size) * 100
-                self.stdscr.addstr(y, 51, f"{pnl_pct:>+6.2f}%", pnl_attr)
-                
-                # Time
-                self.stdscr.addstr(y, 57, " │ ")
-                time_str = (datetime.utcnow() - order.entry_time).total_seconds() // 60
-                self.stdscr.addstr(y, 59, f"{int(time_str):>3}m")
-
-    def draw_status(self):
-        """Draw status bar"""
-        y = self.height - 2
-        if self.view_mode == "SIGNALS":
-            # Show selected pairs
-            selected = ", ".join(self.selected_pairs) if self.selected_pairs else "Chưa chọn cặp nào"
-            status = f" Đã chọn: {selected}"
-            self.stdscr.addstr(y - 1, 2, status, self.GREEN)
-            
-            # Show controls
-            controls = " ↑/↓: Di chuyển | SPACE: Chọn/Bỏ | ENTER: Vào lệnh | TAB: Xem lệnh | ESC: Thoát "
-            self.stdscr.addstr(y, (self.width - len(controls)) // 2, controls, self.CYAN)
+            if price >= self.tp:
+                return CLOSE_REASON_TP
+            elif price <= self.sl:
+                return CLOSE_REASON_SL
         else:
-            # Show orders summary
-            if self.active_orders:
-                total_pnl = sum(order.pnl for order in self.active_orders.values())
-                summary = f" Tổng P/L hiện tại: ${total_pnl:+,.2f}"
-                self.stdscr.addstr(y - 1, 2, summary, self.GREEN if total_pnl >= 0 else self.RED)
-            
-            # Show controls
-            controls = " TAB: Xem tín hiệu | ESC: Thoát "
-            self.stdscr.addstr(y, (self.width - len(controls)) // 2, controls, self.CYAN)
-
-    def update(self):
-        """Update screen"""
-        self.stdscr.clear()
-        self.draw_header()
-        
-        if self.view_mode == "SIGNALS":
-            self.draw_signals_view()
-        else:
-            self.draw_orders_view()
-            
-        self.draw_status()
-        self.stdscr.refresh()
-
-    def handle_input(self) -> Optional[Dict[str, Any]]:
-        """Handle keyboard input"""
-        key = self.stdscr.getch()
-        
-        if key == 9:  # TAB
-            self.view_mode = "ORDERS" if self.view_mode == "SIGNALS" else "SIGNALS"
-            
-        elif self.view_mode == "SIGNALS":
-            if key == curses.KEY_UP and self.selected_index > 0:
-                self.selected_index -= 1
-            elif key == curses.KEY_DOWN and self.selected_index < len(self.signals) - 1:
-                self.selected_index += 1
-            elif key == ord(' '):  # Spacebar
-                signal = self.signals[self.selected_index]
-                symbol = signal['symbol']
-                
-                if symbol in self.selected_pairs:
-                    self.selected_pairs.remove(symbol)
-                elif len(self.selected_pairs) < 5:
-                    self.selected_pairs.append(symbol)
-                    
-            elif key == 10:  # Enter
-                if self.selected_pairs:
-                    return {
-                        "action": "ENTER_ORDERS",
-                        "pairs": self.selected_pairs
-                    }
-                    
-        if key == 27:  # ESC
-            return {"action": "EXIT"}
-            
+            if price <= self.tp:
+                return CLOSE_REASON_TP
+            elif price >= self.sl:
+                return CLOSE_REASON_SL
         return None
 
-class OrderManager:
-    def __init__(self):
-        self.logger = self._setup_logging()
-        self.telegram = None
-        self._is_running = True
-        self.signals = []
-        self.ui = None
+class OrderManagerGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Bot Quản Lý Lệnh")
+        self.root.geometry("1200x800")
         
-        print("\n[DEBUG] OrderManager initialized")
+        # Data
+        self.signals: List[Signal] = []
+        self.active_orders: Dict[str, Order] = {}
+        self.db = Database()
+        
+        # Setup UI
+        self.setup_ui()
+        self.update_ui()
 
-    async def setup_telegram(self):
-        """Setup Telegram bot"""
-        try:
-            # Load config
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            config_path = os.path.join(current_dir, 'config.yaml')
-            
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-            
-            # Initialize bot
-            self.telegram = Bot(token=config['telegram']['token'])
-            self.chat_id = config['telegram']['chat_id']
-            
-            # Test connection
-            await self.telegram.get_me()
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Telegram setup error: {str(e)}")
-            return False
+    def setup_ui(self):
+        """Setup UI components"""
+        # Style
+        style = ttk.Style()
+        style.configure("Header.TLabel", font=("Arial", 12, "bold"))
+        style.configure("Stats.TLabel", font=("Arial", 10))
+        
+        # Header Frame
+        header_frame = ttk.Frame(self.root, padding="10")
+        header_frame.pack(fill=tk.X)
+        
+        ttk.Label(
+            header_frame, 
+            text="BOT QUẢN LÝ LỆNH GIAO DỊCH",
+            style="Header.TLabel"
+        ).pack(side=tk.LEFT)
+        
+        self.time_label = ttk.Label(
+            header_frame,
+            text="",
+            style="Stats.TLabel"
+        )
+        self.time_label.pack(side=tk.RIGHT)
+        
+        # Stats Frame
+        stats_frame = ttk.Frame(self.root, padding="10")
+        stats_frame.pack(fill=tk.X)
+        
+        self.stats_label = ttk.Label(
+            stats_frame,
+            text="",
+            style="Stats.TLabel"
+        )
+        self.stats_label.pack(side=tk.LEFT)
+        
+        # Signals Frame
+        signals_frame = ttk.LabelFrame(
+            self.root,
+            text="Tín Hiệu Giao Dịch",
+            padding="10"
+        )
+        signals_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Signals Table
+        columns = ("ID", "Cặp", "Loại", "Giá vào", "TP", "SL", "R:R")
+        self.signals_table = ttk.Treeview(
+            signals_frame,
+            columns=columns,
+            show="headings",
+            height=10
+        )
+        
+        for col in columns:
+            self.signals_table.heading(col, text=col)
+            self.signals_table.column(col, width=100, anchor=tk.CENTER)
+        
+        self.signals_table.pack(fill=tk.BOTH, expand=True)
+        
+        # Buttons Frame
+        buttons_frame = ttk.Frame(signals_frame, padding="10")
+        buttons_frame.pack(fill=tk.X)
+        
+        ttk.Button(
+            buttons_frame,
+            text="Vào Lệnh",
+            command=self.enter_selected_orders
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(
+            buttons_frame,
+            text="Làm Mới",
+            command=self.refresh_signals
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Orders Frame
+        orders_frame = ttk.LabelFrame(
+            self.root,
+            text="Lệnh Đang Mở",
+            padding="10"
+        )
+        orders_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Orders Table
+        columns = ("Cặp", "Loại", "Giá vào", "Giá hiện tại", "P/L ($)", "P/L (%)", "Thời gian")
+        self.orders_table = ttk.Treeview(
+            orders_frame,
+            columns=columns,
+            show="headings",
+            height=5
+        )
+        
+        for col in columns:
+            self.orders_table.heading(col, text=col)
+            self.orders_table.column(col, width=100, anchor=tk.CENTER)
+        
+        self.orders_table.pack(fill=tk.BOTH, expand=True)
+        
+        # Close buttons
+        close_frame = ttk.Frame(orders_frame, padding="10")
+        close_frame.pack(fill=tk.X)
+        
+        ttk.Button(
+            close_frame,
+            text="Đóng Lệnh Đã Chọn",
+            command=self.close_selected_orders
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(
+            close_frame,
+            text="Đóng Tất Cả",
+            command=self.close_all_orders
+        ).pack(side=tk.LEFT, padx=5)
 
-    def run_ui(self, stdscr) -> Optional[List[str]]:
-        """Run the console UI"""
-        try:
-            # Setup curses
-            curses.use_default_colors()
-            curses.curs_set(0)
-            stdscr.nodelay(0)
-            stdscr.timeout(100)
-
-            # Initialize UI
-            self.ui = ConsoleUI(stdscr)
-            
-            # Main UI loop
-            while True:
-                self.ui.update()
-                result = self.ui.handle_input()
-                
-                if result:
-                    if result["action"] == "EXIT":
-                        return None
-                    elif result["action"] == "ENTER_ORDERS":
-                        return result["pairs"]
-                        
-                # Update prices every second
-                if self.ui.active_orders:
-                    # This would be replaced with real price updates
-                    for order in self.ui.active_orders.values():
-                        # Simulate price movement for demo
-                        price_change = float(datetime.utcnow().second) / 100
-                        new_price = order.entry * (1 + price_change)
-                        
-                        # Update order
-                        result = order.update_price(new_price)
-                        if result:  # TP or SL hit
-                            order.close(result)
-                            self.ui.total_pnl += order.pnl
-                            self.ui.closed_orders.append(order)
-                            del self.ui.active_orders[order.symbol]
-
-        except Exception as e:
-            self.logger.error(f"UI error: {str(e)}")
-            return None
-
-    async def run(self):
-        """Main bot loop"""
-        try:
-            print("\n=== BOT QUẢN LÝ LỆNH GIAO DỊCH ===")
-            print(f"⌚ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-            print(f"👤 User: Anhbaza01")
-            print("="*40)
-
-            # Setup Telegram
-            if not await self.setup_telegram():
-                print("\n❌ Lỗi kết nối Telegram")
-                return
-
-            # Run UI
-            selected_pairs = wrapper(self.run_ui)
-            if not selected_pairs:
-                print("\n👋 Tạm biệt!")
-                return
-
-            print("\n✅ Đã vào lệnh:")
-            for pair in selected_pairs:
-                print(f"  └─ {pair}")
-                
-            # Notify trading bot
-            await self.telegram.send_message(
-                chat_id=self.chat_id,
-                text=f"🎯 BOT QUẢN LÝ LỆNH\n"
-                     f"📊 Đã vào lệnh: {', '.join(selected_pairs)}\n"
-                     f"⌚ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+    def update_ui(self):
+        """Update UI elements"""
+        # Update time
+        self.time_label.config(
+            text=f"⌚ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        )
+        
+        # Update stats
+        stats = self.db.get_stats()
+        self.stats_label.config(
+            text=(
+                f"📊 Tổng lệnh: {stats['total_trades']} | "
+                f"✅ Thắng: {stats['win_rate']:.1f}% | "
+                f"💰 P/L: ${stats['total_pnl']:+,.2f} | "
+                f"📈 Profit Factor: {stats['profit_factor']:.2f}"
             )
+        )
+        
+        # Schedule next update
+        self.root.after(1000, self.update_ui)
 
-        except Exception as e:
-            self.logger.error(f"Fatal error: {str(e)}")
-        finally:
-            self._is_running = False
+    def refresh_signals(self):
+        """Refresh signals from trading bot"""
+        # This would be replaced with real signal fetching
+        self.signals = [
+            Signal({
+                'symbol': 'BTCUSDT',
+                'type': 'LONG',
+                'entry': 35000.0,
+                'tp': 35700.0,
+                'sl': 34650.0
+            }),
+            Signal({
+                'symbol': 'ETHUSDT',
+                'type': 'SHORT',
+                'entry': 2000.0,
+                'tp': 1950.0,
+                'sl': 2025.0
+            })
+        ]
+        
+        # Update signals table
+        self.signals_table.delete(*self.signals_table.get_children())
+        
+        for idx, signal in enumerate(self.signals, 1):
+            rr = abs((signal.tp - signal.entry) / (signal.entry - signal.sl))
+            
+            self.signals_table.insert("", tk.END, values=(
+                idx,
+                signal.symbol,
+                signal.type,
+                f"${signal.entry:,.2f}",
+                f"${signal.tp:,.2f}",
+                f"${signal.sl:,.2f}",
+                f"{rr:.1f}"
+            ))
+
+    def enter_selected_orders(self):
+        """Enter selected orders"""
+        selections = self.signals_table.selection()
+        if not selections:
+            messagebox.showwarning(
+                "Chưa chọn lệnh",
+                "Vui lòng chọn lệnh để vào"
+            )
+            return
+            
+        if len(self.active_orders) + len(selections) > MAX_TRADES:
+            messagebox.showerror(
+                "Quá số lệnh",
+                f"Chỉ được phép mở tối đa {MAX_TRADES} lệnh"
+            )
+            return
+            
+        # Enter orders
+        for item in selections:
+            idx = int(self.signals_table.item(item)["values"][0]) - 1
+            signal = self.signals[idx]
+            
+            if signal.symbol not in self.active_orders:
+                order = Order(signal)
+                self.active_orders[signal.symbol] = order
+                self.db.add_order({
+                    'symbol': order.symbol,
+                    'type': order.type,
+                    'entry_price': order.entry,
+                    'take_profit': order.tp,
+                    'stop_loss': order.sl,
+                    'size': order.size
+                })
+        
+        self.update_orders_table()
+        messagebox.showinfo(
+            "Thành công",
+            f"Đã vào {len(selections)} lệnh"
+        )
+
+    def update_orders_table(self):
+        """Update orders table"""
+        self.orders_table.delete(*self.orders_table.get_children())
+        
+        for order in self.active_orders.values():
+            pnl_pct = (order.pnl / order.size) * 100
+            time_in_trade = (datetime.utcnow() - order.entry_time).total_seconds() / 60
+            
+            self.orders_table.insert("", tk.END, values=(
+                order.symbol,
+                order.type,
+                f"${order.entry:,.2f}",
+                f"${order.current_price:,.2f}",
+                f"${order.pnl:+,.2f}",
+                f"{pnl_pct:+.2f}%",
+                f"{int(time_in_trade)}m"
+            ))
+
+    def close_selected_orders(self):
+        """Close selected orders"""
+        selections = self.orders_table.selection()
+        if not selections:
+            messagebox.showwarning(
+                "Chưa chọn lệnh",
+                "Vui lòng chọn lệnh để đóng"
+            )
+            return
+            
+        for item in selections:
+            symbol = self.orders_table.item(item)["values"][0]
+            if symbol in self.active_orders:
+                order = self.active_orders[symbol]
+                order.close_time = datetime.utcnow()
+                order.close_reason = CLOSE_REASON_MANUAL
+                order.status = ORDER_STATE_CLOSED
+                
+                self.db.update_order(order.symbol, {
+                    'status': order.status,
+                    'close_time': order.close_time,
+                    'close_reason': order.close_reason,
+                    'pnl': order.pnl
+                })
+                
+                self.db.update_daily_stats(order.pnl)
+                del self.active_orders[symbol]
+        
+        self.update_orders_table()
+        messagebox.showinfo(
+            "Thành công",
+            f"Đã đóng {len(selections)} lệnh"
+        )
+
+    def close_all_orders(self):
+        """Close all open orders"""
+        if not self.active_orders:
+            messagebox.showinfo(
+                "Không có lệnh",
+                "Không có lệnh nào đang mở"
+            )
+            return
+            
+        if messagebox.askyesno(
+            "Xác nhận",
+            "Bạn có chắc muốn đóng tất cả lệnh?"
+        ):
+            for order in self.active_orders.values():
+                order.close_time = datetime.utcnow()
+                order.close_reason = CLOSE_REASON_MANUAL
+                order.status = ORDER_STATE_CLOSED
+                
+                self.db.update_order(order.symbol, {
+                    'status': order.status,
+                    'close_time': order.close_time,
+                    'close_reason': order.close_reason,
+                    'pnl': order.pnl
+                })
+                
+                self.db.update_daily_stats(order.pnl)
+            
+            self.active_orders.clear()
+            self.update_orders_table()
+            messagebox.showinfo(
+                "Thành công",
+                "Đã đóng tất cả lệnh"
+            )
 
 def main():
     """Main entry point"""
     try:
-        # Create and start bot
-        manager = OrderManager()
-        
-        # Set event loop policy for Windows
-        if os.name == 'nt':
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        
-        # Create new event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        # Run bot
-        loop.run_until_complete(manager.run())
-        
-    except KeyboardInterrupt:
-        print("\n⚠️ Bot stopped by user")
+        root = tk.Tk()
+        app = OrderManagerGUI(root)
+        root.mainloop()
     except Exception as e:
-        print(f"\n❌ Fatal error: {str(e)}")
-    finally:
-        try:
-            loop = asyncio.get_event_loop()
-            
-            # Cancel all tasks
-            tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
-            if tasks:
-                loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-            
-            # Shutdown async generators
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            
-        finally:
-            loop.close()
-            
-        # Wait for user input before exit on Windows
-        if os.name == 'nt':
-            input("\nPress Enter to exit...")
+        messagebox.showerror(
+            "Lỗi",
+            f"Lỗi không mong muốn: {str(e)}"
+        )
 
 if __name__ == "__main__":
     main()

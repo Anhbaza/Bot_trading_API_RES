@@ -10,21 +10,3 @@ trading:
   min_volume_usdt: 1000000
   update_interval: 300  # 5 minutes
 
-# Technical Analysis
-analysis:
-  rsi_period: 14
-  rsi_overbought: 70
-  rsi_oversold: 30
-  volume_ratio_min: 1.15
-  
-# Risk Management
-risk:
-  stop_loss: 1.0  # 1%
-  take_profit: 2.0  # 2%
-  max_drawdown: 5.0  # 5%
-
-# GUI Settings
-gui:
-  window_title: "Quản lý Lệnh Giao dịch - Anhbaza01"
-  window_size: "1200x800"
-  update_interval: 1000  # milliseconds

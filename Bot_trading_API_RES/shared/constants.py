@@ -1,118 +1,121 @@
-﻿"""
-Shared constants between bots
-Author: Anhbaza01
-Last Updated: 2025-05-23 11:06:41
-"""
+﻿# Bot Names and Versions
+TRADING_BOT_NAME = "TradingBot"
+ORDER_BOT_NAME = "OrderManagerBot"
+VERSION = "1.0.0"
 
-# Signal types
-SIGNAL_TYPE_LONG = "LONG"
-SIGNAL_TYPE_SHORT = "SHORT"
-
-# Order states
-ORDER_STATE_PENDING = "PENDING"
-ORDER_STATE_RUNNING = "RUNNING"
-ORDER_STATE_COMPLETED = "COMPLETED"
-ORDER_STATE_CANCELLED = "CANCELLED"
-
-# Message types
+# Message Types
 MSG_TYPE_SIGNAL = "SIGNAL"
-MSG_TYPE_ORDER_CONFIRM = "ORDER_CONFIRM"
+MSG_TYPE_ORDER_CONFIRM = "ORDER_CONFIRM" 
 MSG_TYPE_ORDER_UPDATE = "ORDER_UPDATE"
 MSG_TYPE_ORDER_CLOSE = "ORDER_CLOSE"
 
-# System settings
-MAX_ACTIVE_ORDERS = 5
-INITIAL_INVESTMENT = 100.0  # USD
-DEFAULT_UPDATE_INTERVAL = 1.0  # seconds
+# Trading Parameters
+MAX_TRADES = 5
+MAX_TRADES_PER_SYMBOL = 5  # Thêm dòng này
+TRADE_SIZE_USDT = 100  # Fixed size $100 per trade
+MIN_VOLUME_USDT = 1000000  # 1M USDT
+UPDATE_INTERVAL = 300  # 5 minutes
 
-# Bot names
-TRADING_BOT_NAME = "TradingBot"
-ORDER_BOT_NAME = "OrderBot"
+# Risk Management
+RISK_PERCENT = 1.0
+DEFAULT_LEVERAGE = 5
 
-# Price formatting
-PRICE_PRECISION = 4
-PNL_PRECISION = 2
-PERCENTAGE_PRECISION = 2
-
-# GUI settings
-GUI_WINDOW_SIZE = "1200x800"
-GUI_UPDATE_INTERVAL = 1.0  # seconds
-
-# Notification emoji
-EMOJI_LONG = "📈"
-EMOJI_SHORT = "📉"
-EMOJI_TP = "🎯"
-EMOJI_SL = "🛑"
-EMOJI_PROFIT = "💰"
-EMOJI_LOSS = "📊"
-EMOJI_WARNING = "⚠️"
-EMOJI_ERROR = "❌"
-EMOJI_SUCCESS = "✅"
-# Telegram API settings
-TELEGRAM_POOL_SIZE = 10
-TELEGRAM_CONNECTION_TIMEOUT = 30.0
-TELEGRAM_READ_TIMEOUT = 30.0
-TELEGRAM_WRITE_TIMEOUT = 30.0
-TELEGRAM_CONNECT_TIMEOUT = 30.0
-# Bot names
-TRADING_BOT_NAME = "TradingBot"
-ORDER_BOT_NAME = "OrderBot"
-
-# Message types
-MSG_TYPE_SIGNAL = "SIGNAL"
-MSG_TYPE_ORDER_CONFIRM = "ORDER_CONFIRM"
-MSG_TYPE_ORDER_UPDATE = "ORDER_UPDATE"
-MSG_TYPE_ORDER_CLOSE = "ORDER_CLOSE"
-
-# Trading parameters
-MIN_VOLUME_USDT = 1000000  # Minimum 24h volume in USDT
-MAX_TRADES_PER_SYMBOL = 1  # Maximum number of concurrent trades per symbol
-
-# Technical Analysis Parameters
+# Technical Analysis
 RSI_PERIOD = 14
 RSI_OVERBOUGHT = 70
 RSI_OVERSOLD = 30
+VOLUME_RATIO_MIN = 1.15
+MIN_RR_RATIO = 2.0  # Minimum Risk:Reward ratio
+MIN_WIN_RATE = 60.0  # Minimum win rate percentage
 
-# Telegram API settings
-TELEGRAM_POOL_SIZE = 10
-TELEGRAM_CONNECTION_TIMEOUT = 30.0
-TELEGRAM_READ_TIMEOUT = 30.0
-TELEGRAM_WRITE_TIMEOUT = 30.0
-TELEGRAM_CONNECT_TIMEOUT = 30.0
+# Order States
+ORDER_STATE_PENDING = "PENDING"
+ORDER_STATE_OPEN = "OPEN"
+ORDER_STATE_CLOSED = "CLOSED"
+ORDER_STATE_CANCELED = "CANCELED"
 
-# Order Management
-MAX_ACTIVE_ORDERS = 5
-ORDER_UPDATE_INTERVAL = 1.0  # seconds
+# Close Reasons
+CLOSE_REASON_TP = "TP"
+CLOSE_REASON_SL = "SL"
+CLOSE_REASON_SIGNAL = "SIGNAL"
+CLOSE_REASON_MANUAL = "MANUAL"
 
-# GUI Settings
-GUI_UPDATE_INTERVAL = 1000  # milliseconds
-GUI_WINDOW_SIZE = "1200x800"
-GUI_TITLE = "Quản lý Lệnh Giao dịch - Anhbaza01"
+# Signal Sources
+SIGNAL_SOURCE_RSI = "RSI"
+SIGNAL_SOURCE_VOLUME = "VOLUME"
+SIGNAL_SOURCE_PRICE_ACTION = "PRICE_ACTION"
 
-# Colors
-COLOR_BUY = "#4CAF50"  # Green
-COLOR_SELL = "#F44336"  # Red
-COLOR_NEUTRAL = "#9E9E9E"  # Grey
-COLOR_BACKGROUND = "#1E1E1E"  # Dark grey
-COLOR_TEXT = "#FFFFFF"  # White
-COLOR_HIGHLIGHT = "#2196F3"  # Blue
+# Timeframes
+TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M']
 
-# Risk Management
-DEFAULT_RISK_REWARD = 2.0  # Risk/Reward ratio
-DEFAULT_ACCOUNT_RISK = 0.01  # 1% per trade
-DEFAULT_STOP_LOSS = 0.01  # 1% stop loss
-DEFAULT_TAKE_PROFIT = 0.02  # 2% take profit
-MAX_DRAWDOWN = 0.05  # 5% maximum drawdown
+# Colors for UI
+COLOR_PAIRS = {
+    'GREEN': 1,
+    'CYAN': 2,
+    'YELLOW': 3,
+    'RED': 4,
+    'WHITE': 5,
+    'BLUE': 6,
+    'MAGENTA': 7,
+}
 
-# Error Messages
-ERR_NO_SIGNALS = "Không có tín hiệu nào được tìm thấy"
-ERR_INVALID_SYMBOL = "Mã giao dịch không hợp lệ"
-ERR_API_ERROR = "Lỗi kết nối API"
-ERR_NO_DATA = "Không có dữ liệu"
-ERR_INVALID_CONFIG = "Cấu hình không hợp lệ"
+# UI Elements
+UI_SYMBOLS = {
+    'BORDER_H': '─',
+    'BORDER_V': '│',
+    'BORDER_TL': '╭',
+    'BORDER_TR': '╮',
+    'BORDER_BL': '╰',
+    'BORDER_BR': '╯',
+    'ARROW_UP': '↑',
+    'ARROW_DOWN': '↓',
+    'CHECK': '✓',
+    'CROSS': '✗',
+    'WARNING': '⚠',
+    'INFO': 'ℹ',
+}
 
-# Success Messages
-MSG_SIGNAL_FOUND = "Tìm thấy tín hiệu mới"
-MSG_ORDER_PLACED = "Đặt lệnh thành công"
-MSG_ORDER_FILLED = "Lệnh được khớp"
-MSG_ORDER_CLOSED = "Lệnh đã đóng"
+# Telegram Message Templates
+TELEGRAM_TEMPLATES = {
+    'SIGNAL': """
+🔔 <b>Tín hiệu giao dịch mới</b>
+📊 {symbol}
+📈 {type}
+💰 Giá vào: ${entry:.2f}
+✅ Take Profit: ${tp:.2f}
+❌ Stop Loss: ${sl:.2f}
+⚖️ R:R = {rr:.1f}
+⌚ {time}
+""",
+    'ORDER_OPEN': """
+✅ <b>Đã vào lệnh</b>
+📊 {symbol}
+📈 {type}
+💰 Giá vào: ${entry:.2f}
+🎯 TP: ${tp:.2f}
+🛑 SL: ${sl:.2f}
+💵 Size: ${size:.2f}
+⌚ {time}
+""",
+    'ORDER_CLOSE': """
+🔒 <b>Đã đóng lệnh</b>
+📊 {symbol}
+💰 P/L: ${pnl:+,.2f} ({pnl_percent:+.2f}%)
+⏱️ Thời gian: {duration}
+📝 Lý do: {reason}
+⌚ {time}
+""",
+    'DAILY_SUMMARY': """
+📊 <b>Thống kê ngày {date}</b>
+📈 Tổng lệnh: {total_trades}
+✅ Thắng: {win_rate:.1f}%
+💰 Lợi nhuận: ${profit:+,.2f}
+📉 Thua lỗ: ${loss:+,.2f}
+🏆 P/L ròng: ${net_pnl:+,.2f}
+""",
+}
+
+# Database Settings
+DB_FILE = "trading_history.db"
+DB_BACKUP_DIR = "backups"
+MAX_BACKUP_FILES = 7  # Keep last 7 days of backups
