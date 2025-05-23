@@ -191,35 +191,43 @@ class OrderWindow:
 
     def update_signals(self, signals: Dict[str, Dict[str, Any]]):
         """Update signals display"""
-        # Remove old signals
-        for item in self.signals_tree.get_children():
-            symbol = self.signals_tree.item(item)["values"][1]
-            if symbol not in signals:
-                self.signals_tree.delete(item)
-
-        # Add or update signals
-        for symbol, data in signals.items():
-            values = (
-                data["timestamp"],
-                symbol,
-                data["signal_type"],
-                f"${data['entry']:.4f}",
-                f"${data['take_profit']:.4f}",
-                f"${data['stop_loss']:.4f}",
-                f"{data.get('confidence', 0.5):.2%}"
-            )
+        try:
+            self.logger.info(f"Updating signals display: {signals}")
             
-            # Find existing item
-            found = False
+            # Remove old signals
             for item in self.signals_tree.get_children():
-                if self.signals_tree.item(item)["values"][1] == symbol:
-                    self.signals_tree.item(item, values=values)
-                    found = True
-                    break
-            
-            # Add new item
-            if not found:
-                self.signals_tree.insert("", "end", values=values)
+                symbol = self.signals_tree.item(item)["values"][1]
+                if symbol not in signals:
+                    self.signals_tree.delete(item)
+
+            # Add or update signals
+            for symbol, data in signals.items():
+                values = (
+                    data["timestamp"],
+                    symbol,
+                    data["signal_type"],
+                    f"${data['entry']:.4f}",
+                    f"${data['take_profit']:.4f}",
+                    f"${data['stop_loss']:.4f}",
+                    f"{data.get('confidence', 0.5):.2%}"
+                )
+                
+                # Find existing item
+                found = False
+                for item in self.signals_tree.get_children():
+                    if self.signals_tree.item(item)["values"][1] == symbol:
+                        self.signals_tree.item(item, values=values)
+                        found = True
+                        self.logger.info(f"Updated signal: {symbol}")
+                        break
+                
+                # Add new item
+                if not found:
+                    self.signals_tree.insert("", "end", values=values)
+                    self.logger.info(f"Added new signal: {symbol}")
+
+        except Exception as e:
+            self.logger.error(f"Error updating signals: {str(e)}")
 
     def update_orders(self, orders: Dict[str, Any], stats: Dict[str, Any]):
         """Update orders display and statistics"""

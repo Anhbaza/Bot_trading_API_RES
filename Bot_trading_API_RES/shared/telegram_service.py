@@ -8,7 +8,8 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
-from telegram import Bot, ParseMode
+from telegram import Bot
+from telegram.constants import ParseMode  # Thay đổi import này
 from telegram.error import TelegramError
 
 class TelegramService:

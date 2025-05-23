@@ -41,24 +41,26 @@ class TelegramHandler:
         self.on_order_update = on_order_update
 
     async def handle_message(self, message: str) -> None:
-        """
-        Handle incoming Telegram message
-        
-        Args:
-            message: Raw message text
-        """
+        """Handle incoming Telegram message"""
         try:
+            # Log the received message for debugging
+            self.logger.info(f"Received message: {message}")
+            
             # Check if it's a command message
-            if not self.telegram.is_command_message(message):
-                return
-
-            # Parse command
-            command = self.telegram.parse_command(message)
-            if not command:
-                return
-
-            # Process command based on type
-            await self._process_command(command)
+            if message.startswith("CMD:"):
+                try:
+                    # Parse command
+                    command = self.telegram.parse_command(message)
+                    if command:
+                        await self._process_command(command)
+                    else:
+                        self.logger.warning("Failed to parse command message")
+                except Exception as e:
+                    self.logger.error(f"Error processing command: {str(e)}")
+            
+            # Log for debugging
+            else:
+                self.logger.debug(f"Ignored non-command message: {message}")
 
         except Exception as e:
             self.logger.error(f"Error handling message: {str(e)}")
@@ -85,28 +87,37 @@ class TelegramHandler:
             self.logger.error(f"Error processing command {cmd_type}: {str(e)}")
 
     async def _handle_signal(self, data: Dict[str, Any]) -> None:
-        """
-        Handle new trading signal
-        
-        Args:
-            data: Signal data
-        """
+        """Handle new trading signal"""
         try:
+            # Log received signal
+            self.logger.info(f"Processing signal: {data}")
+            
             # Validate required fields
             required_fields = ['symbol', 'signal_type', 'entry', 'take_profit', 'stop_loss']
             if not all(field in data for field in required_fields):
-                self.logger.error("Invalid signal data: missing required fields")
+                self.logger.error(f"Invalid signal data - missing fields: {data}")
                 return
 
-            # Notify callback if registered
-            if self.on_signal_received:
-                self.on_signal_received(data)
+            # Format signal data
+            signal = {
+                'symbol': data['symbol'],
+                'signal_type': data['signal_type'],
+                'entry': float(data['entry']),
+                'take_profit': float(data['take_profit']),
+                'stop_loss': float(data['stop_loss']),
+                'timestamp': datetime.utcnow().strftime('%H:%M:%S'),
+                'confidence': data.get('confidence', 0.55)
+            }
 
-            self.logger.info(f"Received new signal for {data['symbol']}")
+            # Notify GUI via callback
+            if self.on_signal_received:
+                self.logger.info(f"Sending signal to GUI: {signal}")
+                self.on_signal_received(signal)
+            else:
+                self.logger.warning("No signal callback registered")
 
         except Exception as e:
             self.logger.error(f"Error handling signal: {str(e)}")
-
     async def _handle_order_update(self, data: Dict[str, Any]) -> None:
         """
         Handle order update
