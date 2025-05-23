@@ -46,4 +46,4 @@ mypy>=0.910
 isort>=5.10.1
 tkinter
 prometheus_client
-python-telegram-bot>=13.7
+

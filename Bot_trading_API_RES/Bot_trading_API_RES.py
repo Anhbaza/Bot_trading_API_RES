@@ -18,6 +18,7 @@ from config.logging_config import setup_logging
 from config.settings import load_settings
 from services.telegram_notifier import TelegramNotifier
 from core.analyzer.futures import FuturesAnalyzer
+from utils.order_tracker import OrderTracker  # Thêm dòng này
 
 class TradingBot:
     def __init__(self):
@@ -27,6 +28,7 @@ class TradingBot:
         self.notifier: Optional[TelegramNotifier] = None
         self.analyzer: Optional[FuturesAnalyzer] = None
         self.client: Optional[Client] = None
+        self.order_tracker: Optional[OrderTracker] = None  # Thêm dòng này
         self._cleanup_done = False
         self._is_running = True
 
@@ -36,6 +38,10 @@ class TradingBot:
             # Load settings
             self.logger.info("Loading configuration...")
             self.settings = load_settings()
+            
+            # Load additional config for order tracking
+            with open('config.yaml', 'r') as f:
+                tracking_config = yaml.safe_load(f)
             
             # Initialize Binance client
             self.client = Client(
@@ -53,6 +59,12 @@ class TradingBot:
                 chat_id=self.settings['TELEGRAM_CHAT_ID']
             )
             
+            # Initialize order tracker
+            self.order_tracker = OrderTracker(
+                telegram_token=self.settings['TELEGRAM_BOT_TOKEN'],
+                chat_id=self.settings['TELEGRAM_CHAT_ID']
+            )
+            
             self.analyzer = FuturesAnalyzer(
                 client=self.client,
                 user_login="Anhbaza",
@@ -64,6 +76,7 @@ class TradingBot:
         except Exception as e:
             self.logger.error(f"Error during initialization: {str(e)}")
             return False
+
 
     async def start(self):
         """Start bot services"""
@@ -114,117 +127,152 @@ class TradingBot:
             self.logger.error(f"Error during shutdown: {str(e)}")
 
     async def run(self):
-     """Main bot loop"""
-     try:
-        while self._is_running:
-            try:
-                scan_start = time.time()
-                
-                # Lấy danh sách cặp giao dịch từ Binance
-                exchange_info = self.client.futures_exchange_info()
-                symbols = [
-                    s['symbol'] for s in exchange_info['symbols']
-                    if s['symbol'].endswith('USDT') 
-                    and s['status'] == 'TRADING'
-                    and not s['symbol'].startswith('DEFI')
-                ]
-                
-                self.logger.info(f"Found {len(symbols)} trading pairs")
-                
-                # Kết quả phân tích
-                results = {
-                    'signals': [],
-                    'stats': {
-                        'total_processed': 0,
-                        'pre_filter_failed': 0,
-                        'analysis_failed': 0,
-                        'signals_found': 0,
-                        'errors': 0
+        """Main bot loop"""
+        try:
+            while self._is_running:
+                try:
+                    scan_start = time.time()
+                    
+                    # Lấy danh sách cặp giao dịch từ Binance
+                    exchange_info = self.client.futures_exchange_info()
+                    symbols = [
+                        s['symbol'] for s in exchange_info['symbols']
+                        if s['symbol'].endswith('USDT') 
+                        and s['status'] == 'TRADING'
+                        and not s['symbol'].startswith('DEFI')
+                    ]
+                    
+                    self.logger.info(f"Found {len(symbols)} trading pairs")
+                    
+                    # Kết quả phân tích
+                    results = {
+                        'signals': [],
+                        'stats': {
+                            'total_processed': 0,
+                            'pre_filter_failed': 0,
+                            'analysis_failed': 0,
+                            'signals_found': 0,
+                            'errors': 0
+                        }
                     }
-                }
 
-                # Xử lý theo nhóm để tránh rate limit
-                chunk_size = 10
-                chunks = [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
-                
-                for chunk_idx, chunk in enumerate(chunks, 1):
-                    if not self._is_running:
-                        break
+                    # Xử lý theo nhóm để tránh rate limit
+                    chunk_size = 10
+                    chunks = [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
+                    
+                    for chunk_idx, chunk in enumerate(chunks, 1):
+                        if not self._is_running:
+                            break
+                            
+                        chunk_start = time.time()
+                        self.logger.info(f"Processing chunk {chunk_idx}/{len(chunks)} ({len(chunk)} symbols)")
                         
-                    chunk_start = time.time()
-                    self.logger.info(f"Processing chunk {chunk_idx}/{len(chunks)} ({len(chunk)} symbols)")
-                    
-                    for symbol in chunk:
-                        try:
-                            self.logger.info(f"Analyzing {symbol}...")
-                            
-                            # Pre-filter check - không cần await vì đây là hàm đồng bộ
-                            if not self.analyzer.quick_pre_filter(symbol):
-                                results['stats']['pre_filter_failed'] += 1
-                                continue
+                        for symbol in chunk:
+                            try:
+                                self.logger.info(f"Analyzing {symbol}...")
                                 
-                            # Analyze entry conditions - cần await vì đây là hàm bất đồng bộ
-                            signal = await self.analyzer.analyze_entry_conditions(symbol)
-                            results['stats']['total_processed'] += 1
-                            
-                            if signal:
-                                results['signals'].append(signal)
-                                results['stats']['signals_found'] += 1
-                                # Gửi tín hiệu ngay khi tìm thấy
-                                await self.notifier.send_signal(signal)
-                            else:
-                                results['stats']['analysis_failed'] += 1
+                                # Pre-filter check
+                                if not self.analyzer.quick_pre_filter(symbol):
+                                    results['stats']['pre_filter_failed'] += 1
+                                    continue
+                                    
+                                # Analyze entry conditions
+                                signal = await self.analyzer.analyze_entry_conditions(symbol)
+                                results['stats']['total_processed'] += 1
                                 
-                        except Exception as e:
-                            self.logger.error(f"Error processing {symbol}: {str(e)}")
-                            results['stats']['errors'] += 1
-                            
-                        # Rate limiting delay
-                        await asyncio.sleep(self.analyzer.RATE_LIMIT_DELAY)
+                                if signal:
+                                    results['signals'].append(signal)
+                                    results['stats']['signals_found'] += 1
+                                    # Sử dụng hàm handle_signal mới
+                                    await self.handle_signal(signal)
+                                else:
+                                    results['stats']['analysis_failed'] += 1
+                                
+                                # Cập nhật trạng thái các lệnh hiện tại
+                                current_price = float(self.client.futures_symbol_ticker(symbol=symbol)['price'])
+                                await self.update_orders(symbol, current_price, signal['direction'] if signal else None)
+                                    
+                            except Exception as e:
+                                self.logger.error(f"Error processing {symbol}: {str(e)}")
+                                results['stats']['errors'] += 1
+                                
+                            # Rate limiting delay
+                            await asyncio.sleep(self.analyzer.RATE_LIMIT_DELAY)
+                        
+                        # Log chunk completion
+                        chunk_time = time.time() - chunk_start
+                        self.logger.info(
+                            f"Chunk {chunk_idx} completed in {chunk_time:.1f}s - "
+                            f"Processed: {results['stats']['total_processed']}/{len(symbols)}"
+                        )
+                        
+                        if chunk_time < 1:
+                            await asyncio.sleep(1 - chunk_time)
                     
-                    # Log chunk completion
-                    chunk_time = time.time() - chunk_start
-                    self.logger.info(
-                        f"Chunk {chunk_idx} completed in {chunk_time:.1f}s - "
-                        f"Processed: {results['stats']['total_processed']}/{len(symbols)}"
+                    # Tính thời gian quét
+                    scan_duration = time.time() - scan_start
+                    
+                    # Gửi báo cáo hoàn thành
+                    completion_msg = (
+                        f"📊 <b>HOÀN THÀNH QUÉT</b>\n\n"
+                        f"Số cặp đã quét: {len(symbols)}\n"
+                        f"Thời gian quét: {scan_duration:.1f}s\n"
+                        f"Tín hiệu mới: {results['stats']['signals_found']}\n\n"
+                        f"Chi tiết:\n"
+                        f"• Fail pre-filter: {results['stats']['pre_filter_failed']}\n"
+                        f"• Fail analysis: {results['stats']['analysis_failed']}\n"
+                        f"• Total processed: {results['stats']['total_processed']}\n"
+                        f"• Errors: {results['stats']['errors']}\n\n"
+                        f"⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
                     )
                     
-                    # Delay giữa các chunks
-                    if chunk_time < 1:
-                        await asyncio.sleep(1 - chunk_time)
-                
-                # Tính thời gian quét
-                scan_duration = time.time() - scan_start
-                
-                # Gửi báo cáo hoàn thành
-                completion_msg = (
-                    f"📊 <b>HOÀN THÀNH QUÉT</b>\n\n"
-                    f"Số cặp đã quét: {len(symbols)}\n"
-                    f"Thời gian quét: {scan_duration:.1f}s\n"
-                    f"Tín hiệu mới: {results['stats']['signals_found']}\n\n"
-                    f"Chi tiết:\n"
-                    f"• Fail pre-filter: {results['stats']['pre_filter_failed']}\n"
-                    f"• Fail analysis: {results['stats']['analysis_failed']}\n"
-                    f"• Total processed: {results['stats']['total_processed']}\n"
-                    f"• Errors: {results['stats']['errors']}\n\n"
-                    f"⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
-                )
-                
-                self.logger.info(completion_msg)
-                await self.notifier.send_message(completion_msg)
-                
-                # Đợi trước khi quét tiếp
-                self.logger.info("Waiting 5 minutes before next scan...")
-                await asyncio.sleep(300)  # 5 phút
+                    self.logger.info(completion_msg)
+                    await self.notifier.send_message(completion_msg)
                     
-            except Exception as e:
-                self.logger.error(f"Error in main loop: {str(e)}")
-                await asyncio.sleep(30)
-                    
-     except Exception as e:
-        self.logger.error(f"Critical error in run loop: {str(e)}")
-     finally:
-        await self.stop()
+                    # Đợi trước khi quét tiếp
+                    self.logger.info("Waiting 5 minutes before next scan...")
+                    await asyncio.sleep(300)  # 5 phút
+                        
+                except Exception as e:
+                    self.logger.error(f"Error in main loop: {str(e)}")
+                    await asyncio.sleep(30)
+                        
+        except Exception as e:
+            self.logger.error(f"Critical error in run loop: {str(e)}")
+        finally:
+            await self.stop()
+
+    async def handle_signal(self, signal: Dict):
+        """Xử lý tín hiệu giao dịch và cập nhật theo dõi lệnh"""
+        try:
+            symbol = signal['symbol']
+            direction = signal['direction']
+            entry_price = float(signal['entry_price'])
+            take_profit = float(signal['take_profit'])
+            stop_loss = float(signal['stop_loss'])
+
+            # Thêm lệnh mới vào order tracker
+            await self.order_tracker.add_order(
+                symbol=symbol,
+                entry_price=entry_price,
+                direction=direction,
+                take_profit=take_profit,
+                stop_loss=stop_loss
+            )
+
+            # Gửi tín hiệu qua Telegram như bình thường
+            await self.notifier.send_signal(signal)
+
+        except Exception as e:
+            self.logger.error(f"Error handling signal: {str(e)}")
+
+    async def update_orders(self, symbol: str, current_price: float, new_direction: str = None):
+        """Cập nhật trạng thái các lệnh"""
+        try:
+            await self.order_tracker.update_order(symbol, current_price, new_direction)
+        except Exception as e:
+            self.logger.error(f"Error updating orders: {str(e)}")
+
 async def main():
     """Main entry point"""
     print("\n=== BOT GIAO DỊCH BINANCE FUTURES ===")
