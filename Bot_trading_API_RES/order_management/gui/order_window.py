@@ -18,24 +18,21 @@ class OrderWindow:
         max_orders: int = 5,
         update_interval: float = 1.0
     ):
-        """
-        Initialize order management window
-        
-        Args:
-            on_signal_confirm: Callback when signals are confirmed
-            max_orders: Maximum number of active orders allowed
-            update_interval: GUI update interval in seconds
-        """
+        """Initialize order management window"""
         self.window = tk.Tk()
         self.window.title("Quản lý Lệnh Giao dịch - Anhbaza01")
         self.window.geometry("1200x800")
+        
+        # Print debug message
+        print("\n[DEBUG] GUI window initialized")
         
         self.max_orders = max_orders
         self.on_signal_confirm = on_signal_confirm
         self.update_interval = update_interval
         
         self._setup_gui()
-        self._setup_periodic_update()
+        print("\n[DEBUG] GUI setup completed")
+
 
     def _setup_gui(self):
         """Setup GUI components"""
@@ -192,42 +189,30 @@ class OrderWindow:
     def update_signals(self, signals: Dict[str, Dict[str, Any]]):
         """Update signals display"""
         try:
-            self.logger.info(f"Updating signals display: {signals}")
+            print(f"\n[DEBUG] Updating signals in GUI: {signals}")
             
-            # Remove old signals
-            for item in self.signals_tree.get_children():
-                symbol = self.signals_tree.item(item)["values"][1]
-                if symbol not in signals:
-                    self.signals_tree.delete(item)
-
             # Add or update signals
             for symbol, data in signals.items():
-                values = (
-                    data["timestamp"],
-                    symbol,
-                    data["signal_type"],
-                    f"${data['entry']:.4f}",
-                    f"${data['take_profit']:.4f}",
-                    f"${data['stop_loss']:.4f}",
-                    f"{data.get('confidence', 0.5):.2%}"
-                )
-                
-                # Find existing item
-                found = False
-                for item in self.signals_tree.get_children():
-                    if self.signals_tree.item(item)["values"][1] == symbol:
-                        self.signals_tree.item(item, values=values)
-                        found = True
-                        self.logger.info(f"Updated signal: {symbol}")
-                        break
-                
-                # Add new item
-                if not found:
+                try:
+                    values = (
+                        datetime.now().strftime('%H:%M:%S'),
+                        symbol,
+                        data['signal_type'],
+                        f"${float(data['entry']):.4f}",
+                        f"${float(data['take_profit']):.4f}",
+                        f"${float(data['stop_loss']):.4f}",
+                        f"{float(data.get('confidence', 0.55)):.2%}"
+                    )
+                    
+                    # Always insert as new
                     self.signals_tree.insert("", "end", values=values)
-                    self.logger.info(f"Added new signal: {symbol}")
-
+                    print(f"\n[DEBUG] Added signal for {symbol}")
+                    
+                except Exception as e:
+                    print(f"\n[DEBUG] Error processing signal {symbol}: {str(e)}")
+                    
         except Exception as e:
-            self.logger.error(f"Error updating signals: {str(e)}")
+            print(f"\n[DEBUG] Error in update_signals: {str(e)}")
 
     def update_orders(self, orders: Dict[str, Any], stats: Dict[str, Any]):
         """Update orders display and statistics"""

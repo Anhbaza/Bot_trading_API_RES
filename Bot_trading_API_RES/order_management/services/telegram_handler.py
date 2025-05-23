@@ -40,30 +40,55 @@ class TelegramHandler:
         self.on_signal_received = on_signal_received
         self.on_order_update = on_order_update
 
-    async def handle_message(self, message: str) -> None:
-        """Handle incoming Telegram message"""
-        try:
-            # Log the received message for debugging
-            self.logger.info(f"Received message: {message}")
-            
-            # Check if it's a command message
-            if message.startswith("CMD:"):
-                try:
-                    # Parse command
-                    command = self.telegram.parse_command(message)
-                    if command:
-                        await self._process_command(command)
+    aasync def handle_message(self, message: str) -> None:
+     """Handle incoming Telegram message"""
+     try:
+        print(f"\n[DEBUG] TelegramHandler received message: {message}")
+        
+        # Try to parse as command first
+        if message.startswith("CMD:"):
+            try:
+                json_str = message[4:].strip()
+                print(f"\n[DEBUG] Parsing command JSON: {json_str}")
+                
+                command = json.loads(json_str)
+                if command.get("type") == "SIGNAL":
+                    signal_data = command.get("data", {})
+                    print(f"\n[DEBUG] Found signal data: {signal_data}")
+                    
+                    # Format signal for GUI
+                    formatted_signal = {
+                        "symbol": signal_data["symbol"],
+                        "signal_type": signal_data["signal_type"],
+                        "entry": float(signal_data["entry"]),
+                        "take_profit": float(signal_data["take_profit"]),
+                        "stop_loss": float(signal_data["stop_loss"]),
+                        "confidence": float(signal_data.get("confidence", 0.55)),
+                        "timestamp": datetime.utcnow().strftime('%H:%M:%S')
+                    }
+                    
+                    print(f"\n[DEBUG] Formatted signal: {formatted_signal}")
+                    
+                    # Send to GUI
+                    if self.on_signal_received:
+                        print("\n[DEBUG] Sending signal to GUI...")
+                        self.on_signal_received(formatted_signal)
+                        print("\n[DEBUG] Signal sent to GUI")
                     else:
-                        self.logger.warning("Failed to parse command message")
-                except Exception as e:
-                    self.logger.error(f"Error processing command: {str(e)}")
+                        print("\n[DEBUG] No signal callback registered!")
+                        
+            except json.JSONDecodeError as e:
+                print(f"\n[DEBUG] JSON parse error: {str(e)}")
+                print(f"\n[DEBUG] Raw message was: {message}")
+        
+        # Also check for regular messages containing signal data
+        else:
+            print(f"\n[DEBUG] Regular message received: {message}")
+            # Rest of your regular message handling code...
             
-            # Log for debugging
-            else:
-                self.logger.debug(f"Ignored non-command message: {message}")
-
-        except Exception as e:
-            self.logger.error(f"Error handling message: {str(e)}")
+     except Exception as e:
+        print(f"\n[DEBUG] Error in handle_message: {str(e)}")
+        print(f"\n[DEBUG] Message was: {message}")
 
     async def _process_command(self, command: Dict[str, Any]) -> None:
         """

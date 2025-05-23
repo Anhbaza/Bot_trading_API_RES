@@ -48,7 +48,34 @@ class TelegramService:
         except TelegramError as e:
             self.logger.error(f"Error sending message: {str(e)}")
             return False
-
+    def parse_command(self, message: str) -> Optional[Dict[str, Any]]:
+     """Parse command message"""
+     try:
+        print(f"\n[DEBUG] Parsing command message: {message}")
+        
+        # Check for CMD: prefix
+        if message.startswith("CMD:"):
+            json_str = message[4:].strip()
+        else:
+            # Try to find JSON in message
+            start_idx = message.find('{')
+            end_idx = message.rfind('}')
+            if start_idx != -1 and end_idx != -1:
+                json_str = message[start_idx:end_idx + 1]
+            else:
+                return None
+                
+        print(f"\n[DEBUG] Extracted JSON string: {json_str}")
+        
+        # Parse JSON
+        data = json.loads(json_str)
+        print(f"\n[DEBUG] Parsed data: {data}")
+        
+        return data
+        
+     except Exception as e:
+        print(f"\n[DEBUG] Parse command error: {str(e)}")
+        return None
     async def send_command(
         self, 
         command_type: str, 

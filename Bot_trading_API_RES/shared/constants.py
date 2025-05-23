@@ -54,3 +54,65 @@ TELEGRAM_CONNECTION_TIMEOUT = 30.0
 TELEGRAM_READ_TIMEOUT = 30.0
 TELEGRAM_WRITE_TIMEOUT = 30.0
 TELEGRAM_CONNECT_TIMEOUT = 30.0
+# Bot names
+TRADING_BOT_NAME = "TradingBot"
+ORDER_BOT_NAME = "OrderBot"
+
+# Message types
+MSG_TYPE_SIGNAL = "SIGNAL"
+MSG_TYPE_ORDER_CONFIRM = "ORDER_CONFIRM"
+MSG_TYPE_ORDER_UPDATE = "ORDER_UPDATE"
+MSG_TYPE_ORDER_CLOSE = "ORDER_CLOSE"
+
+# Trading parameters
+MIN_VOLUME_USDT = 1000000  # Minimum 24h volume in USDT
+MAX_TRADES_PER_SYMBOL = 1  # Maximum number of concurrent trades per symbol
+
+# Technical Analysis Parameters
+RSI_PERIOD = 14
+RSI_OVERBOUGHT = 70
+RSI_OVERSOLD = 30
+
+# Telegram API settings
+TELEGRAM_POOL_SIZE = 10
+TELEGRAM_CONNECTION_TIMEOUT = 30.0
+TELEGRAM_READ_TIMEOUT = 30.0
+TELEGRAM_WRITE_TIMEOUT = 30.0
+TELEGRAM_CONNECT_TIMEOUT = 30.0
+
+# Order Management
+MAX_ACTIVE_ORDERS = 5
+ORDER_UPDATE_INTERVAL = 1.0  # seconds
+
+# GUI Settings
+GUI_UPDATE_INTERVAL = 1000  # milliseconds
+GUI_WINDOW_SIZE = "1200x800"
+GUI_TITLE = "Quản lý Lệnh Giao dịch - Anhbaza01"
+
+# Colors
+COLOR_BUY = "#4CAF50"  # Green
+COLOR_SELL = "#F44336"  # Red
+COLOR_NEUTRAL = "#9E9E9E"  # Grey
+COLOR_BACKGROUND = "#1E1E1E"  # Dark grey
+COLOR_TEXT = "#FFFFFF"  # White
+COLOR_HIGHLIGHT = "#2196F3"  # Blue
+
+# Risk Management
+DEFAULT_RISK_REWARD = 2.0  # Risk/Reward ratio
+DEFAULT_ACCOUNT_RISK = 0.01  # 1% per trade
+DEFAULT_STOP_LOSS = 0.01  # 1% stop loss
+DEFAULT_TAKE_PROFIT = 0.02  # 2% take profit
+MAX_DRAWDOWN = 0.05  # 5% maximum drawdown
+
+# Error Messages
+ERR_NO_SIGNALS = "Không có tín hiệu nào được tìm thấy"
+ERR_INVALID_SYMBOL = "Mã giao dịch không hợp lệ"
+ERR_API_ERROR = "Lỗi kết nối API"
+ERR_NO_DATA = "Không có dữ liệu"
+ERR_INVALID_CONFIG = "Cấu hình không hợp lệ"
+
+# Success Messages
+MSG_SIGNAL_FOUND = "Tìm thấy tín hiệu mới"
+MSG_ORDER_PLACED = "Đặt lệnh thành công"
+MSG_ORDER_FILLED = "Lệnh được khớp"
+MSG_ORDER_CLOSED = "Lệnh đã đóng"

@@ -2,7 +2,7 @@
 """
 Order Management Bot - Entry Point
 Author: Anhbaza01
-Last Updated: 2025-05-23 11:35:10
+Last Updated: 2025-05-23 12:12:47 UTC
 """
 
 import os
@@ -12,11 +12,19 @@ import logging
 from datetime import datetime
 import yaml
 from decimal import Decimal
+import json
+import tkinter as tk
+from typing import Dict, Any, Optional, Callable
 
 from shared.constants import (
     MSG_TYPE_SIGNAL, MSG_TYPE_ORDER_CONFIRM,
     MSG_TYPE_ORDER_UPDATE, MSG_TYPE_ORDER_CLOSE,
-    ORDER_BOT_NAME
+    ORDER_BOT_NAME,
+    TELEGRAM_POOL_SIZE,
+    TELEGRAM_CONNECTION_TIMEOUT,
+    TELEGRAM_READ_TIMEOUT,
+    TELEGRAM_WRITE_TIMEOUT,
+    TELEGRAM_CONNECT_TIMEOUT
 )
 from shared.telegram_service import TelegramService
 from order_management.models.order_data import OrderData
@@ -26,23 +34,17 @@ from order_management.services.telegram_handler import TelegramHandler
 
 class OrderBot:
     def __init__(self):
+        """Initialize order bot"""
         self.logger = self._setup_logging()
         self.manager = OrderManager()
         self.telegram = None
         self.telegram_handler = None
         self.gui = None
         self._is_running = True
-    async def _delete_webhook(self):
-        """Delete any active webhook"""
-        try:
-            await self.telegram.bot.delete_webhook(drop_pending_updates=True)
-            self.logger.info("Successfully deleted webhook")
-        except Exception as e:
-            self.logger.error(f"Error deleting webhook: {str(e)}")
-            return False
-        return True
+        print("\n[DEBUG] OrderBot initialized")
+
     def _setup_logging(self) -> logging.Logger:
-        """Setup logging"""
+        """Setup logging configuration"""
         logging.basicConfig(
             format='%(asctime)s UTC | %(levelname)s | %(message)s',
             level=logging.INFO,
@@ -51,8 +53,9 @@ class OrderBot:
         return logging.getLogger("OrderBot")
 
     def load_config(self) -> bool:
-        """Load configuration"""
+        """Load configuration from file"""
         try:
+            print("\n[DEBUG] Loading config...")
             with open('config.yaml', 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
 
@@ -70,70 +73,94 @@ class OrderBot:
                 on_order_update=self._on_order_update
             )
             
+            print("\n[DEBUG] Config loaded successfully")
             return True
+            
         except Exception as e:
             self.logger.error(f"Error loading config: {str(e)}")
+            print(f"\n[DEBUG] Config load error: {str(e)}")
             return False
 
     def _on_signal_received(self, signal_data: dict):
         """Handle new signal from trading bot"""
         try:
-            self.logger.info(f"Received signal in GUI: {signal_data}")
+            print(f"\n[DEBUG] Signal received in bot: {signal_data}")
             
             if self.gui:
-                # Update signals dictionary with new signal
+                print("\n[DEBUG] Updating GUI with signal...")
                 symbol = signal_data['symbol']
                 self.gui.update_signals({symbol: signal_data})
-                self.logger.info(f"Updated GUI with signal for {symbol}")
+                print(f"\n[DEBUG] GUI updated for {symbol}")
             else:
-                self.logger.warning("GUI not initialized")
+                print("\n[DEBUG] WARNING: GUI not initialized!")
                 
         except Exception as e:
-            self.logger.error(f"Error updating GUI with signal: {str(e)}")
+            print(f"\n[DEBUG] Error in _on_signal_received: {str(e)}")
+            self.logger.error(f"Error handling signal: {str(e)}")
 
     def _on_order_update(self, symbol: str, current_price: Decimal):
         """Handle order update"""
-        if self.gui:
-            self.gui.update_orders(
-                self.manager.active_orders,
-                {
-                    "total_profit": float(self.manager.total_profit),
-                    "win_rate": self.manager.win_rate
-                }
-            )
+        try:
+            if self.gui:
+                self.gui.update_orders(
+                    self.manager.active_orders,
+                    {
+                        "total_profit": float(self.manager.total_profit),
+                        "win_rate": self.manager.get_statistics()["win_rate"]
+                    }
+                )
+        except Exception as e:
+            self.logger.error(f"Error updating orders: {str(e)}")
 
     def _on_signal_confirm(self, symbols: list[str]):
         """Handle signal confirmation from GUI"""
         asyncio.create_task(self.telegram_handler.send_order_confirmation(symbols))
 
+    async def _delete_webhook(self):
+        """Delete any active webhook"""
+        try:
+            print("\n[DEBUG] Deleting webhook...")
+            await self.telegram.bot.delete_webhook(drop_pending_updates=True)
+            print("\n[DEBUG] Webhook deleted successfully")
+            self.logger.info("Successfully deleted webhook")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error deleting webhook: {str(e)}")
+            print(f"\n[DEBUG] Webhook deletion error: {str(e)}")
+            return False
+
     async def _process_telegram_updates(self):
-        """Process Telegram updates"""
-        offset = 0
-        while self._is_running:
-            try:
-                # Get updates with offset
-                updates = await self.telegram.bot.get_updates(
-                    offset=offset,
-                    timeout=30,
-                    allowed_updates=['message']
-                )
+     """Process Telegram updates"""
+     offset = 0
+     print("\n[DEBUG] Starting Telegram update processing...")
+    
+     while self._is_running:
+        try:
+            # Get updates with offset
+            updates = await self.telegram.bot.get_updates(
+                offset=offset,
+                timeout=30,
+                allowed_updates=['message']
+            )
+            
+            print(f"\n[DEBUG] Received {len(updates)} updates")
+            
+            for update in updates:
+                # Update offset
+                offset = update.update_id + 1
                 
-                for update in updates:
-                    # Update offset
-                    offset = update.update_id + 1
+                if update.message and update.message.text:
+                    print(f"\n[DEBUG] Processing update {update.update_id}")
+                    print(f"\n[DEBUG] Message text: {update.message.text}")
                     
-                    if update.message and update.message.text:
-                        # Log received message
-                        self.logger.info(f"Received message: {update.message.text}")
-                        
-                        # Handle message
-                        await self.telegram_handler.handle_message(update.message.text)
-                
-                await asyncio.sleep(1)
-                
-            except Exception as e:
-                self.logger.error(f"Error processing updates: {str(e)}")
-                await asyncio.sleep(5)
+                    # Handle message
+                    await self.telegram_handler.handle_message(update.message.text)
+            
+            await asyncio.sleep(1)
+            
+        except Exception as e:
+            print(f"\n[DEBUG] Update processing error: {str(e)}")
+            await asyncio.sleep(5)
 
     async def start(self):
         """Start the bot"""
@@ -154,13 +181,17 @@ class OrderBot:
                 print("\n❌ Không thể xóa webhook. Kiểm tra logs.")
                 return
 
-            # Start Telegram update task
-            asyncio.create_task(self._process_telegram_updates())
-
-            # Initialize and start GUI
+            # Initialize GUI first
+            print("\n[DEBUG] Initializing GUI...")
             self.gui = OrderWindow(
                 on_signal_confirm=self._on_signal_confirm
             )
+            print("\n[DEBUG] GUI initialized")
+            
+            # Start Telegram update task
+            print("\n[DEBUG] Starting Telegram handler...")
+            asyncio.create_task(self._process_telegram_updates())
+            print("\n[DEBUG] Telegram handler started")
             
             # Send startup notification
             await self.telegram.send_message(
@@ -170,26 +201,40 @@ class OrderBot:
             )
             
             # Run GUI (this will block)
+            print("\n[DEBUG] Starting GUI main loop...")
             self.gui.run()
 
         except Exception as e:
             self.logger.error(f"Error starting bot: {str(e)}")
+            print(f"\n[DEBUG] Startup error: {str(e)}")
         finally:
             self._is_running = False
             await self.telegram.send_message("⚠️ Bot Quản lý Lệnh đã dừng")
 
+    async def stop(self):
+        """Stop the bot"""
+        self._is_running = False
+        if self.gui:
+            self.gui.window.quit()
 
 def main():
     """Main entry point"""
-    bot = OrderBot()
-    
     try:
-        if os.name == 'nt':  # Windows
+        print("\n=== Starting Order Management Bot ===")
+        
+        # Create and start bot
+        bot = OrderBot()
+        
+        # Set event loop policy for Windows
+        if os.name == 'nt':
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         
+        # Create new event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
+        # Run bot
+        print("\n[DEBUG] Starting bot...")
         loop.run_until_complete(bot.start())
         
     except KeyboardInterrupt:
