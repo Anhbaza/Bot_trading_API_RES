@@ -2,7 +2,7 @@
 """
 Bot Trading API REST - Main Entry Point
 Author: Anhbaza
-Last Updated: 2025-05-22 18:40:08
+Last Updated: 2025-05-23 08:33:58
 """
 
 import os
@@ -10,6 +10,7 @@ import sys
 import time
 import asyncio
 import logging
+import yaml
 from datetime import datetime
 from typing import Optional, Dict, List
 from binance import Client
@@ -18,7 +19,8 @@ from config.logging_config import setup_logging
 from config.settings import load_settings
 from services.telegram_notifier import TelegramNotifier
 from core.analyzer.futures import FuturesAnalyzer
-from utils.order_tracker import OrderTracker  # Thêm dòng này
+from utils.order_tracker import OrderTracker
+from core.models import SignalData
 
 class TradingBot:
     def __init__(self):
@@ -28,7 +30,7 @@ class TradingBot:
         self.notifier: Optional[TelegramNotifier] = None
         self.analyzer: Optional[FuturesAnalyzer] = None
         self.client: Optional[Client] = None
-        self.order_tracker: Optional[OrderTracker] = None  # Thêm dòng này
+        self.order_tracker: Optional[OrderTracker] = None
         self._cleanup_done = False
         self._is_running = True
 
@@ -40,8 +42,12 @@ class TradingBot:
             self.settings = load_settings()
             
             # Load additional config for order tracking
-            with open('config.yaml', 'r') as f:
-                tracking_config = yaml.safe_load(f)
+            try:
+                with open('config.yaml', 'r', encoding='utf-8') as f:
+                    tracking_config = yaml.safe_load(f)
+            except UnicodeDecodeError:
+                with open('config.yaml', 'r', encoding='latin-1') as f:
+                    tracking_config = yaml.safe_load(f)
             
             # Initialize Binance client
             self.client = Client(
@@ -77,7 +83,6 @@ class TradingBot:
             self.logger.error(f"Error during initialization: {str(e)}")
             return False
 
-
     async def start(self):
         """Start bot services"""
         try:
@@ -96,7 +101,7 @@ class TradingBot:
             start_msg = (
                 "🚀 <b>Bot Trading đã khởi động</b>\n\n"
                 f"⏰ Thời gian: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
-                f"👤 User: Anhbaza\n"
+                f"👤 User: Anhbaza01\n"
                 f"📊 Số cặp theo dõi: {total_pairs}\n"
                 f"🌍 Environment: {self.settings['ENVIRONMENT']}\n"
                 "📈 Chiến lược: RSI + Volume + Price Action\n\n"
@@ -125,6 +130,32 @@ class TradingBot:
                 await self.notifier.stop()
         except Exception as e:
             self.logger.error(f"Error during shutdown: {str(e)}")
+
+    async def handle_signal(self, signal: SignalData):
+        """Xử lý tín hiệu giao dịch và cập nhật theo dõi lệnh"""
+        try:
+            # Thêm lệnh mới vào order tracker
+            await self.order_tracker.add_order(
+                symbol=signal.symbol,
+                entry_price=signal.entry,
+                direction=signal.signal_type,
+                take_profit=signal.take_profit,
+                stop_loss=signal.stop_loss
+            )
+
+            # Gửi tín hiệu qua Telegram như bình thường
+            await self.notifier.send_signal(signal)
+
+        except Exception as e:
+            self.logger.error(f"Error handling signal: {str(e)}")
+
+    async def update_orders(self, symbol: str, current_price: float, signal: SignalData = None):
+        """Cập nhật trạng thái các lệnh"""
+        try:
+            new_direction = signal.signal_type if signal else None
+            await self.order_tracker.update_order(symbol, current_price, new_direction)
+        except Exception as e:
+            self.logger.error(f"Error updating orders: {str(e)}")
 
     async def run(self):
         """Main bot loop"""
@@ -190,7 +221,7 @@ class TradingBot:
                                 
                                 # Cập nhật trạng thái các lệnh hiện tại
                                 current_price = float(self.client.futures_symbol_ticker(symbol=symbol)['price'])
-                                await self.update_orders(symbol, current_price, signal['direction'] if signal else None)
+                                await self.update_orders(symbol, current_price, signal)
                                     
                             except Exception as e:
                                 self.logger.error(f"Error processing {symbol}: {str(e)}")
@@ -242,42 +273,11 @@ class TradingBot:
         finally:
             await self.stop()
 
-    async def handle_signal(self, signal: Dict):
-        """Xử lý tín hiệu giao dịch và cập nhật theo dõi lệnh"""
-        try:
-            symbol = signal['symbol']
-            direction = signal['direction']
-            entry_price = float(signal['entry_price'])
-            take_profit = float(signal['take_profit'])
-            stop_loss = float(signal['stop_loss'])
-
-            # Thêm lệnh mới vào order tracker
-            await self.order_tracker.add_order(
-                symbol=symbol,
-                entry_price=entry_price,
-                direction=direction,
-                take_profit=take_profit,
-                stop_loss=stop_loss
-            )
-
-            # Gửi tín hiệu qua Telegram như bình thường
-            await self.notifier.send_signal(signal)
-
-        except Exception as e:
-            self.logger.error(f"Error handling signal: {str(e)}")
-
-    async def update_orders(self, symbol: str, current_price: float, new_direction: str = None):
-        """Cập nhật trạng thái các lệnh"""
-        try:
-            await self.order_tracker.update_order(symbol, current_price, new_direction)
-        except Exception as e:
-            self.logger.error(f"Error updating orders: {str(e)}")
-
 async def main():
     """Main entry point"""
     print("\n=== BOT GIAO DỊCH BINANCE FUTURES ===")
     print(f"🕒 Thời gian: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-    print(f"👤 User: Anhbaza")
+    print(f"👤 User: Anhbaza01")
     print(f"📂 Thư mục hiện tại: {os.getcwd()}")
     print("="*40 + "\n")
     
