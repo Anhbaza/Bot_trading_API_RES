@@ -4,6 +4,12 @@ Bot Trading API REST - Main Entry Point
 Author: Anhbaza
 Last Updated: 2025-05-23 08:33:58
 """
+from shared.constants import (
+    MSG_TYPE_SIGNAL, MSG_TYPE_ORDER_CONFIRM,
+    MSG_TYPE_ORDER_UPDATE, MSG_TYPE_ORDER_CLOSE,
+    TRADING_BOT_NAME
+)
+from shared.telegram_service import TelegramService
 
 import os
 import sys
@@ -33,6 +39,10 @@ class TradingBot:
         self.order_tracker: Optional[OrderTracker] = None
         self._cleanup_done = False
         self._is_running = True
+         # Thêm biến theo dõi
+        self.tracking_symbols = set()
+        self.telegram_service = None
+
 
     def initialize(self):
         """Initialize synchronous components"""
@@ -76,13 +86,36 @@ class TradingBot:
                 user_login="Anhbaza",
                 settings=self.settings
             )
+            # Khởi tạo telegram service
+            self.telegram_service = TelegramService(
+                token=self.settings['TELEGRAM_BOT_TOKEN'],
+                chat_id=self.settings['TELEGRAM_CHAT_ID'],
+                bot_name=TRADING_BOT_NAME
+            )
             
             return True
 
         except Exception as e:
             self.logger.error(f"Error during initialization: {str(e)}")
             return False
-
+    
+    async def handle_order_bot_command(self, command: dict):
+        """Xử lý lệnh từ OrderBot"""
+        cmd_type = command.get('type')
+        data = command.get('data', {})
+        
+        if cmd_type == MSG_TYPE_ORDER_CONFIRM:
+            # Cập nhật danh sách symbols cần theo dõi
+            symbols = data.get('symbols', [])
+            self.tracking_symbols.update(symbols)
+            self.logger.info(f"Updated tracking symbols: {self.tracking_symbols}")
+            
+        elif cmd_type == MSG_TYPE_ORDER_CLOSE:
+            # Xóa symbol khỏi danh sách theo dõi
+            symbol = data.get('symbol')
+            if symbol in self.tracking_symbols:
+                self.tracking_symbols.remove(symbol)
+                self.logger.info(f"Removed {symbol} from tracking")
     async def start(self):
         """Start bot services"""
         try:
@@ -164,6 +197,21 @@ class TradingBot:
                 try:
                     scan_start = time.time()
                     
+                     # Chỉ quét các cặp đang theo dõi nếu có
+                    if self.tracking_symbols:
+                        symbols = list(self.tracking_symbols)
+                    else:
+                        # Quét tất cả các cặp như bình thường
+                        exchange_info = self.client.futures_exchange_info()
+                        symbols = [
+                            s['symbol'] for s in exchange_info['symbols']
+                            if s['symbol'].endswith('USDT') 
+                            and s['status'] == 'TRADING'
+                            and not s['symbol'].startswith('DEFI')
+                        ]
+                    
+                    self.logger.info(f"Found {len(symbols)} trading pairs")
+                    
                     # Lấy danh sách cặp giao dịch từ Binance
                     exchange_info = self.client.futures_exchange_info()
                     symbols = [
@@ -212,17 +260,35 @@ class TradingBot:
                                 results['stats']['total_processed'] += 1
                                 
                                 if signal:
-                                    results['signals'].append(signal)
-                                    results['stats']['signals_found'] += 1
-                                    # Sử dụng hàm handle_signal mới
-                                    await self.handle_signal(signal)
-                                else:
-                                    results['stats']['analysis_failed'] += 1
+                                 results['signals'].append(signal)
+                                 results['stats']['signals_found'] += 1
                                 
-                                # Cập nhật trạng thái các lệnh hiện tại
-                                current_price = float(self.client.futures_symbol_ticker(symbol=symbol)['price'])
-                                await self.update_orders(symbol, current_price, signal)
-                                    
+                                 # Gửi tín hiệu cho cả Telegram và OrderBot
+                                 await self.notifier.send_signal(signal)
+                                 await self.telegram_service.send_command(
+                                    MSG_TYPE_SIGNAL,
+                                    {
+                                        "symbol": signal.symbol,
+                                        "signal_type": signal.signal_type,
+                                        "entry": signal.entry,
+                                        "take_profit": signal.take_profit,
+                                        "stop_loss": signal.stop_loss,
+                                        "reason": signal.reason,
+                                        "timestamp": signal.timestamp
+                                    }
+                                )
+                            
+                                # Gửi cập nhật giá cho OrderBot nếu symbol đang được theo dõi
+                                if symbol in self.tracking_symbols:
+                                 current_price = float(self.client.futures_symbol_ticker(symbol=symbol)['price'])
+                                 await self.telegram_service.send_command(
+                                    MSG_TYPE_ORDER_UPDATE,
+                                    {
+                                        "symbol": symbol,
+                                        "price": current_price
+                                    }
+                                 )
+           
                             except Exception as e:
                                 self.logger.error(f"Error processing {symbol}: {str(e)}")
                                 results['stats']['errors'] += 1

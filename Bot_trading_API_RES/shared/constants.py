@@ -1,0 +1,50 @@
+﻿"""
+Shared constants between bots
+Author: Anhbaza01
+Last Updated: 2025-05-23 11:06:41
+"""
+
+# Signal types
+SIGNAL_TYPE_LONG = "LONG"
+SIGNAL_TYPE_SHORT = "SHORT"
+
+# Order states
+ORDER_STATE_PENDING = "PENDING"
+ORDER_STATE_RUNNING = "RUNNING"
+ORDER_STATE_COMPLETED = "COMPLETED"
+ORDER_STATE_CANCELLED = "CANCELLED"
+
+# Message types
+MSG_TYPE_SIGNAL = "SIGNAL"
+MSG_TYPE_ORDER_CONFIRM = "ORDER_CONFIRM"
+MSG_TYPE_ORDER_UPDATE = "ORDER_UPDATE"
+MSG_TYPE_ORDER_CLOSE = "ORDER_CLOSE"
+
+# System settings
+MAX_ACTIVE_ORDERS = 5
+INITIAL_INVESTMENT = 100.0  # USD
+DEFAULT_UPDATE_INTERVAL = 1.0  # seconds
+
+# Bot names
+TRADING_BOT_NAME = "TradingBot"
+ORDER_BOT_NAME = "OrderBot"
+
+# Price formatting
+PRICE_PRECISION = 4
+PNL_PRECISION = 2
+PERCENTAGE_PRECISION = 2
+
+# GUI settings
+GUI_WINDOW_SIZE = "1200x800"
+GUI_UPDATE_INTERVAL = 1.0  # seconds
+
+# Notification emoji
+EMOJI_LONG = "📈"
+EMOJI_SHORT = "📉"
+EMOJI_TP = "🎯"
+EMOJI_SL = "🛑"
+EMOJI_PROFIT = "💰"
+EMOJI_LOSS = "📊"
+EMOJI_WARNING = "⚠️"
+EMOJI_ERROR = "❌"
+EMOJI_SUCCESS = "✅"
