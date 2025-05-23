@@ -26,7 +26,25 @@ class TelegramService:
         self.chat_id = chat_id
         self.bot_name = bot_name
         self.logger = logging.getLogger(f"{bot_name}.telegram")
-
+    async def test_connection(self) -> bool:
+        """Test Telegram connection"""
+        try:
+            # Get bot info
+            bot_info = await self.bot.get_me()
+            self.logger.info(f"Bot connected successfully: @{bot_info.username}")
+            
+            # Test chat
+            chat = await self.bot.get_chat(self.chat_id)
+            self.logger.info(f"Chat found: {chat.type} - {chat.title or 'Private'}")
+            
+            return True
+            
+        except TelegramError as e:
+            self.logger.error(f"Telegram connection error: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error testing connection: {str(e)}")
+            return False
     async def send_message(self, text: str, parse_mode: str = ParseMode.HTML) -> bool:
         """
         Send regular text message

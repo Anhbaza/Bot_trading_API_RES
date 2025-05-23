@@ -2,7 +2,7 @@
 """
 Binance Futures Trading Bot with API REST
 Author: Anhbaza01
-Last Updated: 2025-05-23 16:07:17 UTC
+Last Updated: 2025-05-23 16:32:24 UTC
 """
 
 import os
@@ -14,8 +14,9 @@ import json
 import yaml
 from typing import Dict, Any, List, Optional
 from decimal import Decimal
+import aiohttp  # Thêm import này
 
-from binance.client import Client  # Changed from AsyncClient to Client
+from binance.client import Client
 from binance.exceptions import BinanceAPIException
 
 from shared.telegram_service import TelegramService
@@ -69,24 +70,29 @@ class TradingBot:
         logger.info("="*50)
         
         return logger
-
     async def load_config(self) -> bool:
         """Load configuration from file"""
         try:
             self.logger.info("Loading configuration...")
             
-            with open('config.yaml', 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-
-            # Initialize Binance client
-            self.client = Client(
-                api_key=config['binance']['api_key'],
-                api_secret=config['binance']['api_secret']
-            )
+            # Get current directory
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            config_path = os.path.join(current_dir, 'config.yaml')
             
-            # Test connection
-            self.client.ping()
-            self.logger.info("Successfully connected to Binance API")
+            print(f"\n[DEBUG] Loading config from: {config_path}")
+            
+            if not os.path.exists(config_path):
+                self.logger.error(f"Config file not found at: {config_path}")
+                return False
+            
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                
+            print(f"\n[DEBUG] Loaded config: {config}")
+
+            # Initialize Binance client without API key
+            self.client = Client()
+            self.logger.info("Successfully connected to Binance Public API")
 
             # Initialize Telegram service
             self.logger.info("Starting Telegram notification service...")
@@ -110,12 +116,14 @@ class TradingBot:
 
         except Exception as e:
             self.logger.error(f"Error loading configuration: {str(e)}")
+            print(f"\n[DEBUG] Config error: {str(e)}")
             return False
 
+    
     def get_trading_pairs(self) -> List[str]:
-        """Get list of trading pairs"""
+        """Get list of trading pairs from Binance Public API"""
         try:
-            # Get exchange info
+            # Get exchange info without API key
             exchange_info = self.client.futures_exchange_info()
             
             # Filter trading pairs
@@ -126,6 +134,11 @@ class TradingBot:
             
             self.logger.info(f"Found {len(pairs)} trading pairs")
             return pairs
+
+        except Exception as e:
+            self.logger.error(f"Error getting trading pairs: {str(e)}")
+            return []
+
 
         except Exception as e:
             self.logger.error(f"Error getting trading pairs: {str(e)}")
@@ -163,31 +176,46 @@ class TradingBot:
             print(f"\n[DEBUG] Error sending signal: {str(e)}")
             self.logger.error(f"Error sending signal: {str(e)}")
 
-    def get_klines(self, symbol: str, interval: str = '5m', limit: int = 100) -> List[Dict[str, Any]]:
-        """Get kline/candlestick data"""
-        try:
-            klines = self.client.futures_klines(
-                symbol=symbol,
-                interval=interval,
-                limit=limit
-            )
-            
-            formatted_klines = []
-            for k in klines:
-                formatted_klines.append({
-                    'timestamp': k[0],
-                    'open': float(k[1]),
-                    'high': float(k[2]),
-                    'low': float(k[3]),
-                    'close': float(k[4]),
-                    'volume': float(k[5])
-                })
-                
-            return formatted_klines
+    async def get_klines(self, symbol: str, interval: str = '5m', limit: int = 100) -> List[Dict[str, Any]]:
+     """Get kline/candlestick data from Binance Futures API"""
+     try:
+        # Use Binance Futures API endpoint
+        url = f"https://fapi.binance.com/fapi/v1/klines"
+        params = {
+            'symbol': symbol,
+            'interval': interval,
+            'limit': limit
+        }
 
-        except Exception as e:
-            self.logger.error(f"Error getting klines for {symbol}: {str(e)}")
-            return []
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as response:
+                if response.status == 200:
+                    klines_data = await response.json()
+                    
+                    formatted_klines = []
+                    for k in klines_data:
+                        formatted_klines.append({
+                            'timestamp': k[0],
+                            'open': float(k[1]),
+                            'high': float(k[2]),
+                            'low': float(k[3]),
+                            'close': float(k[4]),
+                            'volume': float(k[5])
+                        })
+                    
+                    return formatted_klines
+                else:
+                    error_msg = await response.text()
+                    self.logger.error(f"Error getting klines for {symbol}: {error_msg}")
+                    return []
+
+     except aiohttp.ClientError as e:
+        self.logger.error(f"Network error getting klines for {symbol}: {str(e)}")
+        return []
+     except Exception as e:
+        self.logger.error(f"Error getting klines for {symbol}: {str(e)}")
+        return []
+
 
     def calculate_indicators(self, klines: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calculate technical indicators"""
@@ -277,8 +305,8 @@ class TradingBot:
     async def process_symbol(self, symbol: str):
         """Process single symbol"""
         try:
-            # Get klines data
-            klines = self.get_klines(symbol)  # Removed await
+            # Get klines data using public API
+            klines = await self.get_klines(symbol)
             if not klines:
                 return
 
@@ -290,9 +318,23 @@ class TradingBot:
             # Analyze for signals
             signal = self.analyze_symbol(symbol, klines, indicators)
             if signal:
-                # Send signal
-                await self.send_signal(signal)
-                self.logger.info(f"Signal found for {symbol}: {signal['signal_type']}")
+                # Format message with current market data
+                current_price = klines[-1]['close']
+                message = (
+                    f"🎯 TÍN HIỆU GIAO DỊCH: {signal['symbol']}\n"
+                    f"📊 Loại: {signal['signal_type']}\n"
+                    f"💰 Giá hiện tại: {current_price:.4f}\n"
+                    f"📍 Giá vào lệnh: {signal['entry']:.4f}\n"
+                    f"🎯 Take Profit: {signal['take_profit']:.4f}\n"
+                    f"🛑 Stop Loss: {signal['stop_loss']:.4f}\n"
+                    f"📈 RSI({RSI_PERIOD}): {indicators['rsi']:.2f}\n"
+                    f"📊 Volume Ratio: {indicators['volume_ratio']:.2f}\n"
+                    f"⏰ Time: {datetime.utcnow().strftime('%H:%M:%S')}\n"
+                    f"💡 Lý do: {signal['reason']}"
+                )
+                
+                await self.telegram.send_message(message)
+                self.logger.info(f"Signal sent for {symbol}")
 
         except Exception as e:
             self.logger.error(f"Error processing {symbol}: {str(e)}")
@@ -314,7 +356,7 @@ class TradingBot:
             while self._is_running:
                 try:
                     # Get trading pairs
-                    self.trading_pairs = self.get_trading_pairs()  # Removed await
+                    self.trading_pairs = self.get_trading_pairs()
                     if not self.trading_pairs:
                         await asyncio.sleep(60)
                         continue
@@ -325,14 +367,17 @@ class TradingBot:
                         chunk = self.trading_pairs[i:i + chunk_size]
                         self.logger.info(f"Processing chunk {i//chunk_size + 1}/{(len(self.trading_pairs)-1)//chunk_size + 1} ({len(chunk)} symbols)")
                         
+                        # Process symbols concurrently
+                        tasks = []
                         for symbol in chunk:
                             self.logger.info(f"Analyzing {symbol}...")
-                            await self.process_symbol(symbol)
-                            await asyncio.sleep(1)  # Rate limiting
-
-                        await asyncio.sleep(2)  # Delay between chunks
+                            tasks.append(self.process_symbol(symbol))
+                        
+                        await asyncio.gather(*tasks)
+                        await asyncio.sleep(2)  # Rate limiting between chunks
 
                     # Delay between full scans
+                    self.logger.info("Completed full scan, waiting for next cycle...")
                     await asyncio.sleep(300)  # 5 minutes
 
                 except Exception as e:
