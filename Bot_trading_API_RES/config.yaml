@@ -10,3 +10,7 @@ trading:
   min_volume_usdt: 1000000
   update_interval: 300  # 5 minutes
 
+  websocket:
+  host: "localhost"
+  port: 8765
+
